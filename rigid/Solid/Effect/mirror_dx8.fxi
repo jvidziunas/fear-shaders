@@ -1,0 +1,113 @@
+#include "..\..\..\sdk\basedefs.fxh"
+#include "..\..\..\sdk\skeletal.fxh"
+#include "..\..\..\sdk\screencoords.fxh"
+#include "..\..\..\sdk\transforms.fxh"
+#include "..\..\..\sdk\lightdefs.fxh"
+#include "..\..\..\sdk\depthencode.fxh"
+
+//--------------------------------------------------------------------
+// Input/output formats
+
+// Represents a single input vertex that will be fed into each vertex shader
+struct MaterialVertex
+{
+    float3	Position	: POSITION;
+    float3	Normal		: NORMAL; 
+    float2	TexCoord	: TEXCOORD0;
+	float3	Tangent		: TANGENT;
+	float3	Binormal	: BINORMAL;
+
+	DECLARE_SKELETAL_WEIGHTS
+};
+DECLARE_VERTEX_FORMAT(MaterialVertex);
+DECLARE_DESCRIPTION("This is the DX8 version of the mirror shader.");
+DECLARE_DOCUMENATION("Shaders\\Docs\\mirror\\main.htm");
+
+//--------------------------------------------------------------------
+// Material parameters
+
+MIPARAM_SURFACEFLAGS;
+
+// the textures exported for the user
+MIPARAM_TEXTURE(tMirrorMap, 0, 0, "", true, "The mirror texture to be used. This should be set as the texture replaced with the mirror render target object.");
+MIPARAM_TEXTURE(tTintMap, 0, 0, "", false, "This texture will modulate the mirror texture, allowing for parts of the mirror to be tinted.");
+
+//the samplers for those textures
+SAMPLER_WRAP(sMirrorMapSampler, tMirrorMap);
+SAMPLER_WRAP_LINEAR(sTintMapSampler, tTintMap);
+
+//--------------------------------------------------------------------
+// Utility functions
+
+float3 GetPosition(MaterialVertex Vert)
+{
+	return SKIN_POINT(Vert.Position, Vert);
+}
+
+// Fetch the material diffuse color at a texture coordinate
+float4 GetMaterialTint(float2 vCoord)
+{
+	return tex2D(sTintMapSampler, vCoord);
+}
+
+//////////////////////////////////////////////////////////////////////////////
+// Translucent
+//////////////////////////////////////////////////////////////////////////////
+
+struct PSData_Translucent 
+{
+	float4 Position : POSITION;
+	float2 TexCoord : TEXCOORD0;
+	float4 ScreenCoord : TEXCOORD1;
+};
+
+PSData_Translucent Translucent_VS(MaterialVertex IN)
+{
+	PSData_Translucent OUT;
+	OUT.Position = TransformToClipSpace(GetPosition(IN));
+	OUT.TexCoord = IN.TexCoord;
+	OUT.ScreenCoord = GetScreenTexCoords(OUT.Position);
+	OUT.ScreenCoord.x *= -1;
+
+	return OUT;
+}
+
+float4 Translucent_PS(PSData_Translucent IN) : COLOR
+{
+	float4 vResult = tex2D(sMirrorMapSampler, IN.ScreenCoord);
+
+	vResult.xyz *= GetMaterialTint(IN.TexCoord).xyz;
+	vResult.w   = GetLightDiffuseColor().a;
+	
+	return vResult;
+}
+
+technique Translucent
+{
+	pass Draw
+	{
+		SrcBlend	= SrcAlpha;
+		DestBlend	= InvSrcAlpha;
+		
+		VertexShader = compile vs_1_1 Translucent_VS();
+		PixelShader = compile ps_1_1 Translucent_PS();
+		TextureTransformFlags[1] = Projected;
+	}
+}
+
+//////////////////////////////////////////////////////////////////////////////
+// Ambient
+//////////////////////////////////////////////////////////////////////////////
+
+technique Ambient
+{
+	pass Draw
+	{
+		VertexShader = compile vs_1_1 Translucent_VS();
+		PixelShader = compile ps_1_1 Translucent_PS();
+		TextureTransformFlags[1] = Projected;
+	}
+}
+
+// Depth encoding support
+ENCODE_DEPTH_DX8(MaterialVertex)

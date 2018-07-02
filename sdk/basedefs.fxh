@@ -44,67 +44,6 @@ struct PSOutput
 //web link.
 #define DECLARE_DOCUMENATION(DocStr)			string DocumentationLink = DocStr
 
-//////////////////////////////////////
-// Gamma macros
-//
-// Macros/helpers in order to enable correct interaction with sRGB gamma-space colors
-// Luminance coefficients derived from the ITU-R BT.709 (sRGB) primary space
-#define LUMINANCE_VECTOR float3( 0.2126f, 0.7152f, 0.0722f )
-
-#ifndef FORCE_NO_GAMMA_CORRECTION
-#	define GAMMA_CORRECT_READ		SRGBTexture = true
-#	define GAMMA_CORRECT_WRITE		sRGBWriteEnable = true
-	// Use this function when reading from diffuse textures in order to get correct alpha values
-	float4 LinearizeAlpha( float4 vSrcCol )
-	{
-		//if( vSrcCol.w < 0.0031308f )
-		//	vSrcCol.w *= 12.92f;
-		//else
-		//	vSrcCol.w = 1.055f * pow( vSrcCol.w, 1.0f/2.4f ) - 0.055f;
-		return vSrcCol;
-	}
-
-	float3 LinearizeColor( float3 vSrcCol )
-	{
-		vSrcCol = saturate(vSrcCol);
-		vSrcCol = (vSrcCol < 0.04045.xxx) ? (vSrcCol / 12.92.xxx) : pow( (vSrcCol + 0.055.xxx)/1.055.xxx, 2.4f );
-		return vSrcCol;
-	}
-
-	float4 LinearizeColor( float4 vSrcCol )
-	{
-		return float4( LinearizeColor(vSrcCol.xyz), vSrcCol.w );
-	}
-	/*
-	  If we don't correct light color, the scene is too bright. Ideally, we should be doing something
-	  along the lines of CorrectFog, (see below) but for whatever reason Jupiter EX just flips the
-	  fuck out and either breaks directional lights totally or makes fill lights blink on and off crazily.
-	  While the method below isn't perfect, it does reduce brightness to about orignial levels.
-	*/
-	float3 CorrectLight( float3 vLightCol ) { return( vLightCol * 0.8f ); }
-	float3 CorrectFog( float3 vFogCol )
-	{
-		return LinearizeColor( vFogCol );
-	}
-
-	
-#else
-#	define GAMMA_CORRECT_READ		SRGBTexture = false
-#	define GAMMA_CORRECT_WRITE		sRGBWriteEnable = false
-	// Use this function when reading from diffuse textures in order to get correct alpha values
-	// Since we're no longer working in gamma space, these are just passthrough functions
-	// (No conversion would be necessary)
-	float4 LinearizeAlpha( float4 vSrcCol ) { return vSrcCol; }
-	float4 LinearizeColor( float4 vSrcCol ) { return vSrcCol; }
-	float3 LinearizeColor( float3 vSrcCol ) { return vSrcCol; }
-	float3 CorrectLight( float3 vLightCol ) { return vLightCol; }
-	float3 CorrectFog( float3 vFogCol ) { return vFogCol; }
-#endif
-
-// These don't depend on gamma-correction being enabled, they're always linear
-#define GAMMA_LINEAR_DATA			SRGBTexture = false
-#define GAMMA_LINEAR_RENDERTARGET	sRGBWriteEnable = false
-
 
 //////////////////////////////////////
 // Sampler macros
@@ -119,17 +58,16 @@ struct PSOutput
 					texture = <TextureName>;					\
 					AddressU = Wrap;							\
 					AddressV = Wrap;							\
-					GAMMA_LINEAR_DATA;							\
+					SRGBTexture = true;							\
 				}
-
-//sampler that wraps in both U and V, sRGB-corrected
-#define SAMPLER_WRAP_sRGB(SamplerName, TextureName)				\
+//sampler that wraps in both U and V, and is not color data
+#define SAMPLER_WRAP_LINEAR(SamplerName, TextureName)			\
 				sampler SamplerName = sampler_state				\
 				{												\
 					texture = <TextureName>;					\
 					AddressU = Wrap;							\
 					AddressV = Wrap;							\
-					GAMMA_CORRECT_READ;							\
+					SRGBTexture = false;						\
 				}
 
 //sampler that wraps in both U and V and uses point sampling
@@ -142,11 +80,10 @@ struct PSOutput
 					MagFilter = Point;							\
 					MinFilter = Point;							\
 					MipFilter = Point;							\
-					GAMMA_LINEAR_DATA;							\
+					SRGBTexture = true;							\
 				}
-				
-//sampler that wraps in both U and V and uses point sampling, sRGB-corrected
-#define SAMPLER_WRAP_POINT_sRGB(SamplerName, TextureName)		\
+//sampler that wraps in both U and V and uses point sampling
+#define SAMPLER_WRAP_POINT_LINEAR(SamplerName, TextureName)		\
 				sampler SamplerName = sampler_state				\
 				{												\
 					texture = <TextureName>;					\
@@ -155,7 +92,7 @@ struct PSOutput
 					MagFilter = Point;							\
 					MinFilter = Point;							\
 					MipFilter = Point;							\
-					GAMMA_CORRECT_READ;							\
+					SRGBTexture = false;						\
 				}
 
 //sampler that uses a border color of the specified color
@@ -166,18 +103,17 @@ struct PSOutput
 					BorderColor = BColor;						\
 					AddressU = Border;							\
 					AddressV = Border;							\
-					GAMMA_LINEAR_DATA;							\
+					SRGBTexture = true;							\
 				}
-				
-//sampler that uses a border color of the specified color, sRGB-corrected
-#define SAMPLER_BORDER_sRGB(SamplerName, TextureName, BColor)	\
-				sampler SamplerName = sampler_state				\
-				{												\
-					texture = <TextureName>;					\
-					BorderColor = BColor;						\
-					AddressU = Border;							\
-					AddressV = Border;							\
-					GAMMA_CORRECT_READ;							\
+//sampler that uses a border color of the specified color
+#define SAMPLER_BORDER_LINEAR(SamplerName, TextureName, BColor)		\
+				sampler SamplerName = sampler_state					\
+				{													\
+					texture = <TextureName>;						\
+					BorderColor = BColor;							\
+					AddressU = Border;								\
+					AddressV = Border;								\
+					SRGBTexture = false;							\
 				}
 
 //sampler that clamps in both U and V
@@ -187,17 +123,16 @@ struct PSOutput
 					texture = <TextureName>;					\
 					AddressU = Clamp;							\
 					AddressV = Clamp;							\
-					GAMMA_LINEAR_DATA;							\
+					SRGBTexture = true;							\
 				}
-				
-//sampler that clamps in both U and V, sRGB-corrected
-#define SAMPLER_CLAMP_sRGB(SamplerName, TextureName)			\
+//sampler that clamps in both U and V
+#define SAMPLER_CLAMP_LINEAR(SamplerName, TextureName)			\
 				sampler SamplerName = sampler_state				\
 				{												\
 					texture = <TextureName>;					\
 					AddressU = Clamp;							\
 					AddressV = Clamp;							\
-					GAMMA_CORRECT_READ;							\
+					SRGBTexture = false;						\
 				}
 
 //sampler that clamps in both U and V and uses point sampling
@@ -210,11 +145,10 @@ struct PSOutput
 					MagFilter = Point;							\
 					MinFilter = Point;							\
 					MipFilter = Point;							\
-					GAMMA_LINEAR_DATA;							\
+					SRGBTexture = true;							\
 				}
-				
-//sampler that clamps in both U and V and uses point sampling, sRGB-corrected
-#define SAMPLER_CLAMP_POINT_sRGB(SamplerName, TextureName)		\
+//sampler that clamps in both U and V and uses point sampling
+#define SAMPLER_CLAMP_POINT_LINEAR(SamplerName, TextureName)	\
 				sampler SamplerName = sampler_state				\
 				{												\
 					texture = <TextureName>;					\
@@ -223,9 +157,8 @@ struct PSOutput
 					MagFilter = Point;							\
 					MinFilter = Point;							\
 					MipFilter = Point;							\
-					GAMMA_CORRECT_READ;							\
+					SRGBTexture = false;						\
 				}
-
 
 //////////////////////////////////////
 // Material Instance Parameters
@@ -296,12 +229,6 @@ float2 UnitVectorToColor(float2 vValue) { return (vValue * 0.5) + 0.5; }
 float3 UnitVectorToColor(float3 vValue) { return (vValue * 0.5) + 0.5; }
 float4 UnitVectorToColor(float4 vValue) { return (vValue * 0.5) + 0.5; }
 
-#ifndef FORCE_OLD_NORMAL_MAP_EXPANSION
-float3 NormalExpand(float3 vSrc) { return normalize(ColorToUnitVector(vSrc)); }
-#else
-float3 NormalExpand(float3 vSrc) { return normalize(vSrc - 0.5); }
-#endif
-
 //-------------------------------------------------------------------------------
 // Inverse tangent space calculation
 //
@@ -315,6 +242,16 @@ float3x3 GetInverseTangentSpace(float3 vTangent, float3 vBinormal, float3 vNorma
 	mResult[1] = vBinormal;
 	mResult[2] = vNormal;
 	return mResult;
+}
+
+float3 sRGBToLinear(float3 color)
+{
+	return color.rgb <= 0.04045.rrr ? color * (1.0.rrr / 12.92.rrr) : pow( (color + 0.055.rrr) * (1.0.rrr / 1.055.rrr), 2.4.rrr );
+}
+
+float4 sRGBToLinear(float4 color)
+{
+	return float4( sRGBToLinear(color.rgb), color.a );
 }
 
 #endif

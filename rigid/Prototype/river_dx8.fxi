@@ -1,0 +1,126 @@
+#include "..\..\sdk\basedefs.fxh"
+#include "..\..\sdk\skeletal.fxh"
+#include "..\..\sdk\transforms.fxh"
+#include "..\..\sdk\dx9lights.fxh"
+#include "..\..\sdk\screencoords.fxh"
+#include "..\..\sdk\depthencode.fxh"
+#include "..\..\sdk\texnormalize.fxh"
+#include "..\..\sdk\DX8Utilities.fxh"
+
+//--------------------------------------------------------------------
+// Input/output formats
+
+// Represents a single input vertex that will be fed into each vertex shader
+struct MaterialVertex
+{
+    float3	Position	: POSITION;
+    float3	Normal		: NORMAL; 
+    float2	TexCoord	: TEXCOORD0;
+	float3	Tangent		: TANGENT;
+	float3	Binormal	: BINORMAL;
+
+	DECLARE_SKELETAL_WEIGHTS
+};
+DECLARE_VERTEX_FORMAT(MaterialVertex);
+DECLARE_DESCRIPTION("This is a specular material with an environment map. This behaves exactly like the standard specular material except for an additional environment map, which is masked out by an environment map mask.");
+DECLARE_DOCUMENATION("Shaders\\Docs\\specular_env\\main.htm");
+
+//--------------------------------------------------------------------
+// Material parameters
+
+MIPARAM_SURFACEFLAGS;
+// the textures exported for the user
+MIPARAM_TEXTURE(tDiffuseMap, 0, 0, "", true, "Diffuse map of the material. This represents the color of the light reflected");
+MIPARAM_TEXTURE(tReflectionMap, 0, 5, "", false, "Reflection map parameter. Set the material parameter for the render target to this parameter.");
+MIPARAM_FLOAT(fReflectionBumpScale, 0.1, "The amount the reflection map will be distorted by the bump map.");
+
+//the samplers for those textures
+SAMPLER_WRAP(sDiffuseMapSampler, tDiffuseMap);
+SAMPLER_CLAMP(sReflectionMapSampler, tReflectionMap);
+
+//--------------------------------------------------------------------
+// Utility functions
+
+float3x3 GetInverseTangentSpace(MaterialVertex Vert)
+{
+	return GetInverseTangentSpace(	SKIN_VECTOR(Vert.Tangent, Vert), 
+									SKIN_VECTOR(Vert.Binormal, Vert), 
+									SKIN_VECTOR(Vert.Normal, Vert));
+}
+
+float3x3 GetTangentSpace(MaterialVertex Vert)
+{
+	return transpose(GetInverseTangentSpace(Vert));
+}
+
+float3 GetPosition(MaterialVertex Vert)
+{
+	return SKIN_POINT(Vert.Position, Vert);
+}
+
+float4 GetMaterialDiffuse(float2 vCoord)
+{
+	return tex2D(sDiffuseMapSampler, vCoord);
+}
+
+// Fetch the material diffuse color at a texture coordinate
+float4 GetMirroredDiffuse(float2 vCoord, float2 vMaskCoord, float2 vScreenPos)
+{
+	float4 vDiffuse = GetLightDiffuseColor() * GetMaterialDiffuse(vCoord);
+	float4 vReflection = tex2D(sReflectionMapSampler, vScreenPos);
+	
+	return vReflection;
+}
+
+//////////////////////////////////////////////////////////////////////////////
+// Ambient
+//////////////////////////////////////////////////////////////////////////////
+
+struct PSData_Ambient 
+{
+	float4 Position		: POSITION;
+	float2 TexCoord		: TEXCOORD0;
+	float4 ScreenCoord	: TEXCOORD1;
+	float2 EmTexCoord	: TEXCOORD2;
+	float2 MaskCoord	: TEXCOORD3;
+};
+
+PSData_Ambient Ambient_VS(MaterialVertex IN)
+{
+	PSData_Ambient OUT;
+	OUT.Position = TransformToClipSpace(GetPosition(IN));
+	OUT.TexCoord = IN.TexCoord;
+	OUT.EmTexCoord = IN.TexCoord;
+	OUT.MaskCoord = IN.TexCoord;
+
+	OUT.ScreenCoord = GetScreenTexCoords(OUT.Position);
+	OUT.ScreenCoord.x = OUT.ScreenCoord.w - OUT.ScreenCoord.x;
+
+	return OUT;
+}
+
+float4 Ambient_PS(PSData_Ambient IN) : COLOR
+{
+	float4 vResult = float4(0,0,0,1);
+
+	float4 vDiffuseColor = GetMirroredDiffuse(IN.TexCoord, IN.MaskCoord, IN.ScreenCoord.xy);
+	vResult.xyz = vDiffuseColor.xyz;
+	vResult.w = 1.0;
+	
+	return vResult;
+}
+
+technique Ambient
+{
+	pass Draw
+	{
+		sRGBWriteEnable = TRUE;
+		
+		VertexShader = compile vs_3_0 Ambient_VS();
+		PixelShader = compile ps_3_0 Ambient_PS();
+		TextureTransformFlags[1] = Projected;
+	}
+}
+
+// Depth encoding support
+ENCODE_DEPTH_DX8(MaterialVertex)

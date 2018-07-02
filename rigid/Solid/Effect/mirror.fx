@@ -13,9 +13,9 @@
 struct MaterialVertex
 {
     float3	Position	: POSITION;
-    float3	Normal	: NORMAL; 
+    float3	Normal		: NORMAL; 
     float2	TexCoord	: TEXCOORD0;
-	float3	Tangent	: TANGENT;
+	float3	Tangent		: TANGENT;
 	float3	Binormal	: BINORMAL;
 
 	DECLARE_SKELETAL_WEIGHTS
@@ -38,8 +38,8 @@ MIPARAM_TEXTURE(tMirrorMap, 0, 0, "", true, "The mirror texture to be used. This
 MIPARAM_TEXTURE(tTintMap, 0, 0, "", false, "This texture will modulate the mirror texture, allowing for parts of the mirror to be tinted.");
 
 //the samplers for those textures
-SAMPLER_WRAP_sRGB(sMirrorMapSampler, tMirrorMap);
-SAMPLER_WRAP_sRGB(sTintMapSampler, tTintMap);
+SAMPLER_WRAP(sMirrorMapSampler, tMirrorMap);
+SAMPLER_WRAP_LINEAR(sTintMapSampler, tTintMap);
 
 //--------------------------------------------------------------------
 // Utility functions
@@ -52,7 +52,7 @@ float3 GetPosition(MaterialVertex Vert)
 // Fetch the material diffuse color at a texture coordinate
 float4 GetMaterialTint(float2 vCoord)
 {
-	return LinearizeAlpha( tex2D(sTintMapSampler, vCoord) );
+	return tex2D(sTintMapSampler, vCoord);
 }
 
 //////////////////////////////////////////////////////////////////////////////
@@ -61,10 +61,10 @@ float4 GetMaterialTint(float2 vCoord)
 
 struct PSData_Translucent 
 {
-	float4 Position		: POSITION;
-	float2 TexCoord		: TEXCOORD0_centroid;
-	float4 ScreenCoord	: TEXCOORD1_centroid;
-	float2 BlurScale		: TEXCOORD2;
+	float4 Position : POSITION;
+	float2 TexCoord : TEXCOORD0;
+	float4 ScreenCoord : TEXCOORD2;
+	float2 BlurScale : TEXCOORD3;
 };
 
 PSData_Translucent Translucent_VS(MaterialVertex IN)
@@ -102,16 +102,16 @@ float4 Translucent_PS(PSData_Translucent IN) : COLOR
 	vResult.xyz *= GetMaterialTint(IN.TexCoord).xyz;
 	vResult.w   = GetLightDiffuseColor().a;
 	
-	return LinearizeAlpha( vResult );
+	return vResult;
 }
 
 technique Translucent
 {
 	pass Draw
 	{
-		SrcBlend		= SrcAlpha;
+		sRGBWriteEnable = TRUE;
+		SrcBlend	= SrcAlpha;
 		DestBlend	= InvSrcAlpha;
-		GAMMA_CORRECT_WRITE;
 		
 		VertexShader = compile vs_3_0 Translucent_VS();
 		PixelShader = compile ps_3_0 Translucent_PS();
@@ -126,7 +126,7 @@ technique Ambient
 {
 	pass Draw
 	{
-		GAMMA_CORRECT_WRITE;
+		sRGBWriteEnable = TRUE;
 
 		VertexShader = compile vs_3_0 Translucent_VS();
 		PixelShader = compile ps_3_0 Translucent_PS();

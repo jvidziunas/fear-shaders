@@ -61,13 +61,13 @@ float3 GetPosition(MaterialVertex Vert)
 
 struct PSData_Translucent 
 {
-	float4 Position		: POSITION;
-	float2 ScreenCoord	: TEXCOORD0_centroid;
-	float2 BlurOffsetX	: TEXCOORD1_centroid;
-	float2 BlurOffsetY	: TEXCOORD2_centroid;
-	float2 RadialScale	: TEXCOORD3;
-	float4 Color		: TEXCOORD4;
-	float4 InvColor		: TEXCOORD5;
+	float4 Position : POSITION;
+	float2 ScreenCoord : TEXCOORD0;
+	float2 BlurOffsetX : TEXCOORD1;
+	float2 BlurOffsetY : TEXCOORD2;
+	float2 RadialScale : TEXCOORD3;
+	float4 Color : TEXCOORD4;
+	float4 InvColor : TEXCOORD5;
 };
 
 PSData_Translucent Translucent_VS(MaterialVertex IN)
@@ -130,7 +130,7 @@ float4 Translucent_PS(PSData_Translucent IN) : COLOR
 	vSharpen *= IN.InvColor;
 	
 	// Blend between the two
-	return LinearizeAlpha( lerp(vSharpen, vRadialBlur, fRadiality * Gradient * Intensity) );
+	return lerp(vSharpen, vRadialBlur, fRadiality * Gradient * Intensity);
 }
 
 technique Translucent <
@@ -142,7 +142,7 @@ technique Translucent <
 		AlphaBlendEnable = True;
 		SrcBlend = SrcAlpha;
 		DestBlend = InvSrcAlpha;
-		GAMMA_CORRECT_WRITE;
+		sRGBWriteEnable = TRUE;
 
 		VertexShader = compile vs_3_0 Translucent_VS();
 		PixelShader = compile ps_3_0 Translucent_PS();

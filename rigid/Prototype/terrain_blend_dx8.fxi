@@ -1,0 +1,446 @@
+#include "..\..\sdk\basedefs.fxh"
+#include "..\..\sdk\skeletal.fxh"
+#include "..\..\sdk\transforms.fxh"
+#include "..\..\sdk\dx9lights.fxh"
+#include "..\..\sdk\screencoords.fxh"
+#include "..\..\sdk\depthencode.fxh"
+
+
+//--------------------------------------------------------------------
+// Input/output formats
+
+// Represents a single input vertex that will be fed into each vertex shader
+struct MaterialVertex
+{
+    float3	Position	: POSITION;
+    float3	Normal		: NORMAL; 
+    float2	DiffuseUV	: TEXCOORD0;
+    float2	TerrainUV	: TEXCOORD1;
+    float2	BlendUV		: TEXCOORD2;
+	float3	Tangent		: TANGENT;
+	float3	Binormal	: BINORMAL;
+
+	DECLARE_SKELETAL_WEIGHTS
+};
+DECLARE_VERTEX_FORMAT(MaterialVertex);
+DECLARE_DESCRIPTION("This shader blends between the specular and terrain shaders based on the main diffuse alpha.");
+DECLARE_DOCUMENATION("Shaders\\Docs\\specular\\main.htm");
+
+//--------------------------------------------------------------------
+// Material parameters
+
+MIPARAM_SURFACEFLAGS;
+// The specular power range of the material
+MIPARAM_FLOAT(fMaxSpecularPower, 64, "Maximum specular power. This scales the gloss map so that bright white is the specified power");
+// the textures exported for the user
+MIPARAM_TEXTURE(tDiffuseMap, 0, 0, "", true, "Diffuse map of the material. The alpha channel of this texture determines the blending amount");
+MIPARAM_TEXTURE(tTerrainDiffuseMap, 1, 0, "", false, "Diffuse map of the terrain.");
+MIPARAM_TEXTURE(tBlendMap, 2, 0, "", false, "Blend map.  The red channel of this texture is used to indicate the amount of blending between the standard material and the terrain material.  0=standard, 1=terrain");
+MIPARAM_TEXTURE(tNormalMap, 0, 1, "", false, "Normal map of the material. This represents the normal of each point on the surface");
+MIPARAM_TEXTURE(tTerrainNormalMap, 1, 1, "", false, "Normal map of the terrain.");
+MIPARAM_TEXTURE(tSpecularMap, 0, 2, "", false, "Specular map of the material. This represents the color of light bounced off the surface");
+MIPARAM_TEXTURE(tEmissiveMap, 0, 3, "", false, "Emissive map of the material. This represents the color of light emitted from the surface");
+MIPARAM_TEXTURE(tTerrainDetailNormalMap, 1, 2, "", false, "Detail normal map of the terrain.  Set the blue channel of this texture to grey (128) for maximum effect.");
+MIPARAM_FLOAT(fTerrainDetailScale, 32.0, "Terrain detail normal map scale");
+MIPARAM_FLOAT(fTerrainDetailDepth, 0.5, "Terrain detail depth scale");
+
+//the samplers for those textures
+SAMPLER_WRAP(sDiffuseMapSampler, tDiffuseMap);
+SAMPLER_WRAP(sTerrainDiffuseMapSampler, tTerrainDiffuseMap);
+SAMPLER_WRAP(sEmissiveMapSampler, tEmissiveMap);
+SAMPLER_WRAP(sSpecularMapSampler, tSpecularMap);
+SAMPLER_WRAP_LINEAR(sBlendMapSampler, tBlendMap);
+// Note : Normal maps should have at least trilinear filtering
+sampler sNormalMapSampler = sampler_state
+{
+	texture = <tNormalMap>;
+	AddressU = Wrap;
+	AddressV = Wrap;
+	MipFilter = Linear;
+};
+sampler sTerrainNormalMapSampler = sampler_state
+{
+	texture = <tTerrainNormalMap>;
+	AddressU = Wrap;
+	AddressV = Wrap;
+	MipFilter = Linear;
+};
+sampler sTerrainDetailNormalMapSampler = sampler_state
+{
+	texture = <tTerrainDetailNormalMap>;
+	AddressU = Wrap;
+	AddressV = Wrap;
+	MipFilter = Linear;
+};
+
+
+//--------------------------------------------------------------------
+// Utility functions
+
+float3x3 GetInverseTangentSpace(MaterialVertex Vert)
+{
+	return GetInverseTangentSpace(	SKIN_VECTOR(Vert.Tangent, Vert), 
+									SKIN_VECTOR(Vert.Binormal, Vert), 
+									SKIN_VECTOR(Vert.Normal, Vert));
+}
+
+float3 GetPosition(MaterialVertex Vert)
+{
+	return SKIN_POINT(Vert.Position, Vert);
+}
+
+// Fetch the surface normal at a texture coordinate
+float3 GetSurfaceNormal(float2 vCoord)
+{
+	return ColorToUnitVector(tex2D(sNormalMapSampler, vCoord).xyz);
+}
+
+float3 GetSurfaceNormal_Unit(float2 vCoord)
+{
+	return normalize(tex2D(sNormalMapSampler, vCoord).xyz - 0.5);
+}
+
+float3 GetTerrainSurfaceNormal(float2 vCoord)
+{
+	float3 vNormalMap = tex2D(sNormalMapSampler, vCoord).xyz - 0.5;
+	float2 vDetailCoord = vCoord * fTerrainDetailScale;
+	float3 vDetail = (tex2D(sTerrainDetailNormalMapSampler, vDetailCoord).xyz - 0.5) * fTerrainDetailDepth;
+	return normalize(vNormalMap + vDetail);
+}
+
+// Fetch the material diffuse color at a texture coordinate
+float4 GetMaterialDiffuse(float2 vCoord)
+{
+	return tex2D(sDiffuseMapSampler, vCoord);
+}
+
+// Fetch the terrain diffuse color at a texture coordinate
+float4 GetTerrainMaterialDiffuse(float2 vCoord)
+{
+	return tex2D(sTerrainDiffuseMapSampler, vCoord);
+}
+
+// Fetch the material specular color at a texture coordinate
+float4 GetMaterialSpecular(float2 vCoord)
+{
+	return tex2D(sSpecularMapSampler, vCoord);
+}
+
+// Fetch the material emissive color at a texture coordinate
+float4 GetMaterialEmissive(float2 vCoord)
+{
+	return tex2D(sEmissiveMapSampler, vCoord);
+}
+
+// Get the blending amount
+float GetBlendAmount(float2 vCoord)
+{
+	return tex2D(sBlendMapSampler, vCoord);
+}
+
+// Standard lighting functions for calculating the terrain/specular blending
+float4 GetLitPixel(float3 vLight, float3 vEye, float4 vTexCoord, float2 vBlendUV, float3 vLightDiffuse, float3 vLightSpecular)
+{
+	float4 vDefault = 
+		GetLitPixelColor(vLight, vEye, 
+			GetSurfaceNormal_Unit(vTexCoord.xy), GetMaterialDiffuse(vTexCoord.xy), GetMaterialSpecular(vTexCoord.xy), 
+			vLightDiffuse, vLightSpecular, fMaxSpecularPower);
+	float4 vTerrain = 
+		GetLitPixelColor(vLight, vEye,
+			GetTerrainSurfaceNormal(vTexCoord.zw), GetTerrainMaterialDiffuse(vTexCoord.zw), 0,
+			vLightDiffuse, 0, 0);
+	return lerp(vDefault, vTerrain, GetBlendAmount(vBlendUV));
+}
+
+
+float4 GetPointFillPixel(
+		in float3 vLightVector[NUM_POINT_FILL_LIGHTS],	
+		in float4 vTexCoord,
+		in float2 vBlendUV
+	)
+{
+	float4 vDefault = GetPointFillPixelColor(vLightVector, GetSurfaceNormal_Unit(vTexCoord.xy), GetMaterialDiffuse(vTexCoord.xy));
+	float4 vTerrain = GetPointFillPixelColor(vLightVector, GetTerrainSurfaceNormal(vTexCoord.zw), GetTerrainMaterialDiffuse(vTexCoord.zw));
+	return lerp(vDefault, vTerrain, GetBlendAmount(vBlendUV));
+}
+
+float4 GetDirectionalLitPixel(
+		float3 vLight, float3 vTexSpace, float3 vEye, float4 vTexCoord, float2 vBlendUV
+	)
+{
+	float4 vDefault = GetDirectionalLitPixelColor(vLight, vTexSpace, vEye, 
+			GetSurfaceNormal_Unit(vTexCoord.xy), GetMaterialDiffuse(vTexCoord.xy), 
+			GetMaterialSpecular(vTexCoord), fMaxSpecularPower);
+	float4 vTerrain = GetDirectionalLitPixelColor(vLight, vTexSpace, vEye, 
+			GetTerrainSurfaceNormal(vTexCoord.zw), GetTerrainMaterialDiffuse(vTexCoord.zw), 
+			0, 0);
+	return lerp(vDefault, vTerrain, GetBlendAmount(vBlendUV));
+}
+			
+//////////////////////////////////////////////////////////////////////////////
+// Ambient
+//////////////////////////////////////////////////////////////////////////////
+
+struct PSData_Ambient 
+{
+	float4 Position : POSITION;
+	float4 TexCoord : TEXCOORD0;
+	float2 BlendUV : TEXCOORD1;
+};
+
+PSData_Ambient Ambient_VS(MaterialVertex IN)
+{
+	PSData_Ambient OUT;
+	OUT.Position = TransformToClipSpace(GetPosition(IN));
+	OUT.TexCoord.xy = IN.DiffuseUV;
+	OUT.TexCoord.zw = IN.TerrainUV;
+	OUT.BlendUV = IN.BlendUV;
+	return OUT;
+}
+
+float4 Ambient_PS(PSData_Ambient IN) : COLOR
+{
+	float4 vResult = float4(0,0,0,1);
+
+	float4 vDiffuseColor = GetMaterialDiffuse(IN.TexCoord.xy);
+	vDiffuseColor = lerp(vDiffuseColor, GetTerrainMaterialDiffuse(IN.TexCoord.zw), GetBlendAmount(IN.BlendUV));
+	vResult.xyz = GetLightDiffuseColor().xyz * vDiffuseColor.xyz + GetMaterialEmissive(IN.TexCoord).xyz;
+	
+	return vResult;
+}
+
+technique Ambient
+{
+	pass Draw
+	{
+		sRGBWriteEnable = TRUE;
+
+		VertexShader = compile vs_3_0 Ambient_VS();
+		PixelShader = compile ps_3_0 Ambient_PS();
+	}
+}
+
+//////////////////////////////////////////////////////////////////////////////
+// Point light
+//////////////////////////////////////////////////////////////////////////////
+
+struct PSData_Point 
+{
+	float4 Position			: POSITION;
+	float4 TexCoord			: TEXCOORD0;
+	float2 BlendUV			: TEXCOORD1;
+	float3 LightVector		: TEXCOORD2;
+	float3 EyeVector		: TEXCOORD3;
+};
+
+PSData_Point Point_VS(MaterialVertex IN)
+{
+	PSData_Point OUT;
+
+	GetVertexAttributes(GetPosition(IN), GetInverseTangentSpace(IN), IN.DiffuseUV, OUT.Position, OUT.TexCoord.xy, OUT.LightVector, OUT.EyeVector);
+	OUT.TexCoord.zw = IN.TerrainUV;
+	OUT.BlendUV = IN.BlendUV;
+
+	return OUT;
+}
+
+float4 Point_PS(PSData_Point IN) : COLOR
+{
+	return GetLitPixel(IN.LightVector, IN.EyeVector, IN.TexCoord, IN.BlendUV, 
+		GetLightDiffuseColor().xyz, GetLightSpecularColor());
+}
+
+technique Point
+{
+	pass Draw
+	{
+		sRGBWriteEnable = TRUE;
+
+		VertexShader = compile vs_3_0 Point_VS();
+		PixelShader = compile ps_3_0 Point_PS();
+	}
+}
+
+//////////////////////////////////////////////////////////////////////////////
+// Point Fill light
+//////////////////////////////////////////////////////////////////////////////
+
+struct PSData_PointFill
+{
+	float4 Position								: POSITION;
+	float4 TexCoord								: TEXCOORD0;
+	float2 BlendUV								: TEXCOORD1;
+	float3 LightVector[NUM_POINT_FILL_LIGHTS]	: TEXCOORD2;
+};
+
+PSData_PointFill PointFill_VS(MaterialVertex IN)
+{
+	PSData_PointFill OUT;
+	GetPointFillVertexAttributes(GetPosition(IN), GetInverseTangentSpace(IN), IN.DiffuseUV, OUT.Position, OUT.TexCoord.xy, OUT.LightVector);
+	OUT.TexCoord.zw = IN.TerrainUV;
+	OUT.BlendUV = IN.BlendUV;
+	return OUT;
+}
+
+float4 PointFill_PS(PSData_PointFill IN) : COLOR
+{
+	return GetPointFillPixel(IN.LightVector, IN.TexCoord, IN.BlendUV);
+}
+
+technique PointFill
+{
+	pass Draw
+	{
+		sRGBWriteEnable = TRUE;
+
+		VertexShader = compile vs_3_0 PointFill_VS();
+		PixelShader = compile ps_3_0 PointFill_PS();
+	}
+}
+
+//////////////////////////////////////////////////////////////////////////////
+// Spot projector
+//////////////////////////////////////////////////////////////////////////////
+
+struct PSData_SpotProjector
+{
+	float4 Position			: POSITION;
+	float4 TexCoord			: TEXCOORD0;
+	float2 BlendUV			: TEXCOORD1;
+	float3 LightVector		: TEXCOORD2;
+	float3 EyeVector		: TEXCOORD3;
+	float4 LightMapCoord	: TEXCOORD4;
+	float2 ClipPlanes		: TEXCOORD5;
+};	
+
+PSData_SpotProjector SpotProjector_VS(MaterialVertex IN) 
+{
+	PSData_SpotProjector OUT;
+
+	float3 vPosition = GetPosition(IN);
+	GetVertexAttributes(vPosition, GetInverseTangentSpace(IN), IN.DiffuseUV, OUT.Position, OUT.TexCoord.xy, OUT.LightVector, OUT.EyeVector);
+	OUT.TexCoord.zw = IN.TerrainUV;
+	OUT.BlendUV = IN.BlendUV;
+
+	// Lightmap coord sampling position
+	OUT.LightMapCoord = GetSpotProjectorTexCoord(vPosition);
+	 
+	// Near/far plane clipping
+	OUT.ClipPlanes = GetSpotProjectorClipInterpolants(vPosition);
+
+	return OUT;
+}
+
+float4 SpotProjector_PS(PSData_SpotProjector IN) : COLOR
+{
+	// Get the pixel
+	float4 vPixelColor = GetLitPixel(IN.LightVector, IN.EyeVector, IN.TexCoord, IN.BlendUV,
+		DX9GetSpotProjectorDiffuseColor(IN.LightMapCoord), DX9GetSpotProjectorSpecularColor(IN.LightMapCoord));
+
+	// Perform clipping
+	return vPixelColor * DX9GetSpotProjectorClipResult(IN.ClipPlanes, IN.LightMapCoord);
+}
+
+technique SpotProjector
+{
+	pass Draw
+	{
+		sRGBWriteEnable = TRUE;
+
+		VertexShader = compile vs_3_0 SpotProjector_VS();
+		PixelShader = compile ps_3_0 SpotProjector_PS();
+	}
+}
+
+//////////////////////////////////////////////////////////////////////////////
+// Cube projector
+//////////////////////////////////////////////////////////////////////////////
+
+struct PSData_CubeProjector
+{
+	float4 Position			: POSITION;
+	float4 TexCoord			: TEXCOORD0;
+	float2 BlendUV			: TEXCOORD1;
+	float3 LightVector		: TEXCOORD2;
+	float3 EyeVector		: TEXCOORD3;
+	float3 LightMapCoord	: TEXCOORD4;
+};	
+
+PSData_CubeProjector CubeProjector_VS(MaterialVertex IN) 
+{
+	PSData_CubeProjector OUT;
+
+	float3 vPosition = GetPosition(IN);
+	GetVertexAttributes(vPosition, GetInverseTangentSpace(IN), IN.DiffuseUV, OUT.Position, OUT.TexCoord.xy, OUT.LightVector, OUT.EyeVector);
+	OUT.TexCoord.zw = IN.TerrainUV;
+	OUT.BlendUV = IN.BlendUV;
+
+	// Lightmap coord sampling position
+	OUT.LightMapCoord = GetCubeProjectorTexCoord(vPosition);
+	 
+	return OUT;
+}
+
+float4 CubeProjector_PS(PSData_CubeProjector IN) : COLOR
+{
+	// Get the pixel
+	return GetLitPixel(IN.LightVector, IN.EyeVector, IN.TexCoord, IN.BlendUV,
+		GetCubeProjectorDiffuseColor(IN.LightMapCoord), GetCubeProjectorSpecularColor(IN.LightMapCoord));
+}
+
+technique CubeProjector
+{
+	pass Draw
+	{
+		sRGBWriteEnable = TRUE;
+
+		VertexShader = compile vs_3_0 CubeProjector_VS();
+		PixelShader = compile ps_3_0 CubeProjector_PS();
+	}
+}
+
+//////////////////////////////////////////////////////////////////////////////
+// Directional
+//////////////////////////////////////////////////////////////////////////////
+
+struct PSData_Directional
+{
+	float4 Position			: POSITION;
+	float4 TexCoord			: TEXCOORD0;
+	float2 BlendUV			: TEXCOORD1;
+	float3 LightVector		: TEXCOORD2;
+	float3 EyeVector		: TEXCOORD3;
+	float3 TexSpace			: TEXCOORD4;
+};
+
+PSData_Directional Directional_VS(MaterialVertex IN)
+{
+	PSData_Directional OUT;
+
+	GetDirectionalVertexAttributes(GetPosition(IN), GetInverseTangentSpace(IN), IN.DiffuseUV, OUT.Position, OUT.TexCoord.xy, OUT.LightVector, OUT.EyeVector, OUT.TexSpace);
+	OUT.TexCoord.zw = IN.TerrainUV;
+	OUT.BlendUV = IN.BlendUV;
+
+	return OUT;
+}
+
+float4 Directional_PS(PSData_Directional IN) : COLOR
+{
+	return GetDirectionalLitPixel(normalize(IN.LightVector), IN.TexSpace, IN.EyeVector, IN.TexCoord, IN.BlendUV);
+}
+
+//----------------------------------------------------------------------------
+// Directional Technique
+technique Directional
+{
+	pass Draw
+	{
+		sRGBWriteEnable = TRUE;
+		
+		VertexShader = compile vs_3_0 Directional_VS();
+		PixelShader = compile ps_3_0 Directional_PS();
+	}
+}
+
+// Depth encoding support
+ENCODE_DEPTH_DX8(MaterialVertex)

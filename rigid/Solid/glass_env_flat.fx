@@ -10,9 +10,9 @@
 struct MaterialVertex
 {
     float3	Position	: POSITION;
-    float3	Normal		: NORMAL; 
+    float3	Normal	: NORMAL; 
     float2	TexCoord	: TEXCOORD0;
-	float3	Tangent		: TANGENT;
+	float3	Tangent	: TANGENT;
 	float3	Binormal	: BINORMAL;
 
 	DECLARE_SKELETAL_WEIGHTS
@@ -35,10 +35,10 @@ MIPARAM_TEXTURE(tEnvironmentMap, 0, 3, "", false, "Cubic environment map for the
 MIPARAM_TEXTURE(tEnvironmentMapMask, 0, 4, "", false, "Masking map for the environment map.  The blending value is in the alpha channel.  A discoloration value is in the color channel.");
 
 //the samplers for those textures
-SAMPLER_WRAP_sRGB(sDiffuseMapSampler, tDiffuseMap);
+SAMPLER_WRAP(sDiffuseMapSampler, tDiffuseMap);
 SAMPLER_WRAP(sSpecularMapSampler, tSpecularMap);
-SAMPLER_CLAMP_sRGB(sEnvironmentMapSampler, tEnvironmentMap);
-SAMPLER_WRAP_sRGB(sEnvironmentMapMaskSampler, tEnvironmentMapMask);
+SAMPLER_CLAMP(sEnvironmentMapSampler, tEnvironmentMap);
+SAMPLER_WRAP_LINEAR(sEnvironmentMapMaskSampler, tEnvironmentMapMask);
 
 //--------------------------------------------------------------------
 // Utility functions
@@ -80,13 +80,13 @@ float4 GetMaterialEnvMap(float3 vEyeVector)
 // Fetch the material emissive color at a texture coordinate
 float4 GetMaterialEnvMapMask(float2 vCoord)
 {
-	return LinearizeAlpha( tex2D(sEnvironmentMapMaskSampler, vCoord) );
+	return tex2D(sEnvironmentMapMaskSampler, vCoord);
 }
 
 // Fetch the material diffuse color at a texture coordinate
 float4 GetMaterialDiffuse(float2 vCoord)
 {
-	return LinearizeAlpha( tex2D(sDiffuseMapSampler, vCoord) );
+	return tex2D(sDiffuseMapSampler, vCoord);
 }
 
 // Fetch the material diffuse color at a texture coordinate
@@ -120,11 +120,11 @@ technique Ambient
 
 struct PSData_Point 
 {
-	float4 Position			: POSITION;
-	float2 TexCoord			: TEXCOORD0_centroid;
-	float3 LightVector		: TEXCOORD1_centroid;
-	float3 EyeVector		: TEXCOORD2_centroid;
-	float3 ObjEyeVector		: TEXCOORD3_centroid;
+	float4 Position		: POSITION;
+	float2 TexCoord		: TEXCOORD0;
+	float3 LightVector	: TEXCOORD1;
+	float3 EyeVector		: TEXCOORD2;
+	float3 ObjEyeVector	: TEXCOORD3;
 };
 
 PSData_Point Point_VS(MaterialVertex IN)
@@ -153,7 +153,7 @@ technique Point
 		AdaptiveTess_X = 0;	
 		ZFunc = LessEqual;
 		StencilEnable = False;
-		GAMMA_CORRECT_WRITE;
+		sRGBWriteEnable = TRUE;
 
 		VertexShader = compile vs_3_0 Point_VS();
 		PixelShader = compile ps_3_0 Point_PS();
@@ -166,16 +166,17 @@ technique Point
 
 struct PSData_PointFill
 {
-	float4 Position			: POSITION;
-	float2 TexCoord			: TEXCOORD0_centroid;
-	float3 ObjEyeVector		: TEXCOORD1_centroid;
-	float3 LightVector[NUM_POINT_FILL_LIGHTS]	: TEXCOORD2_centroid;
+	float4 Position							: POSITION;
+	float2 TexCoord							: TEXCOORD0;
+	float3 ObjEyeVector						: TEXCOORD1;
+	float3 EyeVector							: TEXCOORD2;
+	float3 LightVector[NUM_POINT_FILL_LIGHTS]	: TEXCOORD3;
 };
 
 PSData_PointFill PointFill_VS(MaterialVertex IN)
 {
 	PSData_PointFill OUT;
-	GetPointFillVertexAttributes(GetPosition(IN), GetInverseTangentSpace(IN), IN.TexCoord, OUT.Position, OUT.TexCoord, OUT.LightVector);
+	GetPointFillVertexAttributesEye(GetPosition(IN), GetInverseTangentSpace(IN), IN.TexCoord, OUT.Position, OUT.TexCoord, OUT.LightVector, OUT.EyeVector);
 	
 	OUT.ObjEyeVector = mul((float3x3)mObjectToWorld, GetPosition(IN) - vObjectSpaceEyePos);
 
@@ -196,7 +197,7 @@ technique PointFill
 		AdaptiveTess_X = 0;
 		ZFunc = LessEqual;
 		StencilEnable = False;
-		GAMMA_CORRECT_WRITE;
+		sRGBWriteEnable = TRUE;
 
 		VertexShader = compile vs_3_0 PointFill_VS();
 		PixelShader = compile ps_3_0 PointFill_PS();
@@ -209,13 +210,13 @@ technique PointFill
 
 struct PSData_SpotProjector
 {
-	float4 Position			: POSITION;
-	float2 TexCoord			: TEXCOORD0_centroid;
-	float3 LightVector		: TEXCOORD1_centroid;
-	float3 EyeVector		: TEXCOORD2_centroid;
-	float4 LightMapCoord	: TEXCOORD3_centroid;
+	float4 Position		: POSITION;
+	float2 TexCoord		: TEXCOORD0;
+	float3 LightVector	: TEXCOORD1;
+	float3 EyeVector		: TEXCOORD2;
+	float4 LightMapCoord	: TEXCOORD3;
 	float2 ClipPlanes		: TEXCOORD4;
-	float3 ObjEyeVector		: TEXCOORD5_centroid;
+	float3 ObjEyeVector	: TEXCOORD5;
 };	
 
 PSData_SpotProjector SpotProjector_VS(MaterialVertex IN) 
@@ -255,7 +256,7 @@ technique SpotProjector
 		AdaptiveTess_X = 0;
 		ZFunc = LessEqual;
 		StencilEnable = False;
-		GAMMA_CORRECT_WRITE;
+		sRGBWriteEnable = TRUE;
 
 		VertexShader = compile vs_3_0 SpotProjector_VS();
 		PixelShader = compile ps_3_0 SpotProjector_PS();
@@ -268,12 +269,12 @@ technique SpotProjector
 
 struct PSData_CubeProjector
 {
-	float4 Position			: POSITION;
-	float2 TexCoord			: TEXCOORD0_centroid;
-	float3 LightVector		: TEXCOORD1_centroid;
-	float3 EyeVector		: TEXCOORD2_centroid;
-	float3 LightMapCoord	: TEXCOORD3_centroid;
-	float3 ObjEyeVector		: TEXCOORD4_centroid;
+	float4 Position		: POSITION;
+	float2 TexCoord		: TEXCOORD0;
+	float3 LightVector	: TEXCOORD1;
+	float3 EyeVector		: TEXCOORD2;
+	float3 LightMapCoord	: TEXCOORD3;
+	float3 ObjEyeVector	: TEXCOORD4;
 };	
 
 PSData_CubeProjector CubeProjector_VS(MaterialVertex IN) 
@@ -307,7 +308,7 @@ technique CubeProjector
 		AdaptiveTess_X = 0;	
 		ZFunc = LessEqual;
 		StencilEnable = False;
-		GAMMA_CORRECT_WRITE;
+		sRGBWriteEnable = TRUE;
 
  		VertexShader = compile vs_3_0 CubeProjector_VS();
 		PixelShader = compile ps_3_0 CubeProjector_PS();
@@ -320,12 +321,12 @@ technique CubeProjector
 
 struct PSData_Directional
 {
-	float4 Position			: POSITION;
-	float2 TexCoord			: TEXCOORD0_centroid;
-	float3 LightVector		: TEXCOORD1_centroid;
-	float3 EyeVector		: TEXCOORD2_centroid;
-	float3 TexSpace			: TEXCOORD3_centroid;
-	float3 ObjEyeVector		: TEXCOORD4_centroid;
+	float4 Position		: POSITION;
+	float2 TexCoord		: TEXCOORD0;
+	float3 LightVector	: TEXCOORD1;
+	float3 EyeVector		: TEXCOORD2;
+	float3 TexSpace		: TEXCOORD3;
+	float3 ObjEyeVector	: TEXCOORD4;
 };
 
 PSData_Directional Directional_VS(MaterialVertex IN)
@@ -343,6 +344,7 @@ PSData_Directional Directional_VS(MaterialVertex IN)
 float4 Directional_PS(PSData_Directional IN) : COLOR
 {
 	IN.LightVector.z = abs(IN.LightVector.z);
+
 	return GetDirectionalLitPixelColor(normalize(IN.LightVector), IN.TexSpace, IN.EyeVector, GetSurfaceNormal_Unit(IN.TexCoord),
 			GetMaterialDiffuse(IN.TexCoord, IN.ObjEyeVector), GetMaterialSpecular(IN.TexCoord), fMaxSpecularPower);
 }
@@ -356,8 +358,8 @@ technique Directional
 		AdaptiveTess_X = 0;	
 		ZFunc = LessEqual;
 		StencilEnable = False;
-		GAMMA_CORRECT_WRITE;
-
+		sRGBWriteEnable = TRUE;
+		
 		VertexShader = compile vs_3_0 Directional_VS();
 		PixelShader = compile ps_3_0 Directional_PS();
 	}

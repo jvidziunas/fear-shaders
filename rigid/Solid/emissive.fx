@@ -28,7 +28,7 @@ MIPARAM_SURFACEFLAGS;
 MIPARAM_TEXTURE(tEmissiveMap, 0, 0, "", true, "Emissive map of the material. This represents the color of the emissive contribution.");
 
 //the samplers for those textures
-SAMPLER_WRAP_sRGB(sEmissiveMapSampler, tEmissiveMap);
+SAMPLER_WRAP(sEmissiveMapSampler, tEmissiveMap);
 
 //--------------------------------------------------------------------
 // Utility functions
@@ -50,9 +50,9 @@ float4 GetMaterialEmissive(float2 vCoord)
 
 struct PSData_Ambient
 {
-	float4 Position : POSITION;
-	float2 TexCoord : TEXCOORD0_centroid;
-	float4 Color	: COLOR0;
+	float4 Position	: POSITION;
+	float2 TexCoord	: TEXCOORD0;
+	float4 Color		: COLOR0;
 };
 
 PSData_Ambient Ambient_VS(MaterialVertex IN)
@@ -61,7 +61,7 @@ PSData_Ambient Ambient_VS(MaterialVertex IN)
 	
 	OUT.Position	= TransformToClipSpace(GetPosition(IN));
 	OUT.TexCoord	= IN.TexCoord;
-	OUT.Color	= IN.Color;
+	OUT.Color		= IN.Color;
 	
 	return OUT;
 }
@@ -80,10 +80,10 @@ technique Ambient
 	pass Draw
 	{
 		AlphaTestEnable = False;
-		GAMMA_CORRECT_WRITE;
-
 		VertexShader = compile vs_3_0 Ambient_VS();
 		PixelShader = compile ps_3_0 Ambient_PS();
+
+		sRGBWriteEnable = TRUE;
 	}
 }
 

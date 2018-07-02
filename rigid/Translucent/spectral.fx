@@ -33,9 +33,9 @@ MIPARAM_TEXTURE(tNormalMap, 0, 1, "", false, "The normal map to use for this geo
 MIPARAM_TEXTURE(tAttenuationMap, 0, 2, "", false, "This map controls the color of the object as the normal turns away from the light. This is a 1d texture laid out horizontally so that x=0 is when the normal is looking at the eye, and x=0.5 is when the eye is perpindicular, and x=1 is when the normal is facing away");
 
 //the samplers for those textures
-SAMPLER_WRAP_sRGB(sDiffuseMapSampler, tDiffuseMap);
-SAMPLER_WRAP(sNormalMapSampler, tNormalMap);
-SAMPLER_CLAMP_sRGB(sAttenuationMapSampler, tAttenuationMap);
+SAMPLER_WRAP(sDiffuseMapSampler, tDiffuseMap);
+SAMPLER_WRAP_LINEAR(sNormalMapSampler, tNormalMap);
+SAMPLER_CLAMP_LINEAR(sAttenuationMapSampler, tAttenuationMap);
 
 //--------------------------------------------------------------------
 // Utility functions
@@ -61,8 +61,8 @@ float3x3 GetInverseTangentSpace(MaterialVertex Vert)
 struct PSData_Translucent 
 {
 	float4 Position		: POSITION;
-	float2 TexCoord		: TEXCOORD0_centroid;
-	float3 EyeVector	: TEXCOORD1_centroid;
+	float2 TexCoord		: TEXCOORD0;
+	float3 EyeVector	: TEXCOORD1;
 };
 
 PSData_Translucent Translucent_VS(MaterialVertex IN)
@@ -94,7 +94,7 @@ PSOutput Translucent_PS(PSData_Translucent IN)
 	float fTexCoord = 1.0 - clamp(fEyeDotSurface, 0.0, 1.0);
 	
 	//now look up our attenuation texture and our diffuse map. Our final result is the product of the two
-	float4 vDiffuse = LinearizeAlpha( tex2D(sDiffuseMapSampler, IN.TexCoord) );
+	float4 vDiffuse = tex2D(sDiffuseMapSampler, IN.TexCoord);
 	float4 vAttenuation = tex1D(sAttenuationMapSampler, fTexCoord);	
 
 	OUT.Color = vAttenuation * vDiffuse;
@@ -111,7 +111,7 @@ technique Translucent
 		CullMode	= CCW;
 		SrcBlend	= SrcAlpha;
 		DestBlend	= One;
-		GAMMA_CORRECT_WRITE;
+		sRGBWriteEnable = TRUE;
 
 		VertexShader = compile vs_3_0 Translucent_VS();
 		PixelShader = compile ps_3_0 Translucent_PS();

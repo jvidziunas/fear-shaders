@@ -1,0 +1,127 @@
+#include "..\..\..\sdk\basedefs.fxh"
+#include "..\..\..\sdk\skeletal.fxh"
+#include "..\..\..\sdk\transforms.fxh"
+#include "..\..\..\sdk\screencoords.fxh"
+#include "..\..\..\sdk\time.fxh"
+#include "..\..\..\sdk\noise.fxh"
+#include "..\..\..\sdk\curframemap.fxh"
+
+//--------------------------------------------------------------------
+// Input/output formats
+
+// Represents a single input vertex that will be fed into each vertex shader
+struct MaterialVertex
+{
+    float3	Position	: POSITION;
+    float2	TexCoord	: TEXCOORD0;
+	float4	Color		: COLOR0;
+    float3	Normal		: NORMAL; 
+	float3	Tangent		: TANGENT;
+	float3	Binormal	: BINORMAL;
+
+	DECLARE_SKELETAL_WEIGHTS
+};
+DECLARE_VERTEX_FORMAT(MaterialVertex);
+DECLARE_DESCRIPTION("This is the DX8 version of full-screen effect shader for FEAR, and is only intended for use in OverlayFX");
+DECLARE_DOCUMENATION("Shaders\\Docs\\screeneffect\\main.htm");
+
+//--------------------------------------------------------------------
+// Material parameters
+
+MIPARAM_SURFACEFLAGS;
+// Important note! These parameters are going to be controlled by script commands, and these are the names it's going to
+// use.  So the use of hungarian on these parameters is discouraged.
+MIPARAM_FLOAT(Intensity, 1.0, "Final effect intensity");
+MIPARAM_FLOAT(Sharpen, 1.0, "Sharpen filter kernel size, in pixels");
+MIPARAM_FLOAT(RadialBlur, 1.0, "Radial blur scale (arbitrary value)");
+MIPARAM_FLOAT(Gradient, 1.0, "Radial blur/sharpen interpolation scale");
+MIPARAM_FLOAT(ColorIntensity, 1.0, "Color intensity scale");
+
+// Number of samples performed as part of the radial blur
+#define NUM_RADIAL_BLUR_SAMPLES 16 
+// Radius of the radial blur
+#define RADIAL_BLUR_RADIUS 64
+// Offset of the radial blur per sample
+#define RADIAL_BLUR_OFFSET (RADIAL_BLUR_RADIUS / NUM_RADIAL_BLUR_SAMPLES)
+// Brightness of the sharpening effect
+#define SHARPEN_BRIGHTNESS 0.96
+
+//--------------------------------------------------------------------
+// Utility functions
+
+float3 GetPosition(MaterialVertex Vert)
+{
+	return SKIN_POINT(Vert.Position, Vert);
+}
+
+//////////////////////////////////////////////////////////////////////////////
+// Main shader
+//////////////////////////////////////////////////////////////////////////////
+
+struct PSData_Translucent 
+{
+	float4 Position : POSITION;
+	float2 ScreenCoord[4] : TEXCOORD0;
+	float4 Color : COLOR0;
+	float4 TransparencyControl : COLOR1;
+};
+
+PSData_Translucent Translucent_VS(MaterialVertex IN)
+{
+	PSData_Translucent OUT;
+	OUT.Position = TransformToClipSpace(GetPosition(IN));
+
+	// Note: This is an overlay shader, so perspective correction is not necessary
+	float4 vScreenCoord = GetScreenTexCoords(OUT.Position);
+	float2 vScreenPos = vScreenCoord.xy / vScreenCoord.w;
+
+	// Note: Not using screen resolution, since this controls the distance in screen space
+	// of the radial blur effect.  Using resolution for this would make the radial blur
+	// less pronounced at lower resolutions.
+	float2 vRadialScale = float2(8.0/800, 8.0/600) * RadialBlur * Intensity;
+	
+	float2 vScreenOffset = vScreenPos * 2.0 - 1.0;
+	float fRadiality = length(vScreenOffset);
+	float2 vRadialOffset = vScreenOffset * vRadialScale * fRadiality;
+	for (int loop = 0; loop < 4; ++loop)
+	{
+		OUT.ScreenCoord[loop] = vScreenPos.xy - vRadialOffset * (float)(loop + 1);
+	}
+
+	OUT.Color = IN.Color * ColorIntensity;
+	
+	OUT.TransparencyControl.xyz = UnitVectorToColor(float3(vScreenOffset, 0));
+	
+	OUT.TransparencyControl.w = Intensity;
+	
+	return OUT;
+}
+
+float4 Translucent_PS(PSData_Translucent IN) : COLOR
+{
+	const float k_fAccumulationMultiplier = 0.25;
+	float4 vAccumulator =	tex2D(sCurFrameMapSampler, IN.ScreenCoord[0]) * 0.25;
+	vAccumulator +=			tex2D(sCurFrameMapSampler, IN.ScreenCoord[1]) * 0.25;
+	vAccumulator +=			tex2D(sCurFrameMapSampler, IN.ScreenCoord[2]) * 0.25;
+	vAccumulator +=			tex2D(sCurFrameMapSampler, IN.ScreenCoord[3]) * 0.25;
+
+	float fTransparency = IN.TransparencyControl.w;
+	float3 vOffset = ColorToUnitVector(IN.TransparencyControl.xyz);
+	float fEdging = saturate(dot(vOffset, vOffset));
+	fTransparency *= fEdging;
+	
+	return float4(vAccumulator.xyz * IN.Color.xyz, fTransparency);
+}
+
+technique Translucent
+{
+	pass Draw
+	{
+		AlphaBlendEnable = True;
+		SrcBlend = SrcAlpha;
+		DestBlend = InvSrcAlpha;
+		VertexShader = compile vs_1_1 Translucent_VS();
+		PixelShader = compile ps_1_1 Translucent_PS();
+	}
+}
+

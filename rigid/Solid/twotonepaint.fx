@@ -43,8 +43,8 @@ MIPARAM_VECTOR(vPaintColor1, 0.0, 0.0, 0.15, "This is the middle layer of paint 
 MIPARAM_VECTOR(vPaintColor2, 0.0, 0.3, 0.1, "This is the bottom most layer of paint color, typically only visible when viewing the surface straight on");
 
 //the samplers for those textures
-SAMPLER_WRAP_sRGB(sDiffuseMapSampler, tDiffuseMap);
-SAMPLER_WRAP_sRGB(sEmissiveMapSampler, tEmissiveMap);
+SAMPLER_WRAP(sDiffuseMapSampler, tDiffuseMap);
+SAMPLER_WRAP(sEmissiveMapSampler, tEmissiveMap);
 SAMPLER_WRAP(sSpecularMapSampler, tSpecularMap);
 
 // Note : Normal maps should have at least trilinear filtering
@@ -72,21 +72,21 @@ float3 GetPosition(in MaterialVertex Vert)
 }
 
 // Fetch the surface normal at a texture coordinate
-float3 GetSurfaceNormal_Unit(in float2 vCoord)
-{
-	return normalize(tex2D(sNormalMapSampler, vCoord).xyz - 0.5);
-}
-
-// Fetch the surface normal at a texture coordinate
 float3 GetSurfaceNormal(in float2 vCoord)
 {
 	return ColorToUnitVector(tex2D(sNormalMapSampler, vCoord).xyz);
 }
 
+// Fetch the surface normal at a texture coordinate
+float3 GetSurfaceNormal_Unit(in float2 vCoord)
+{
+	return normalize(GetSurfaceNormal(vCoord));
+}
+
 // Fetch the material diffuse color at a texture coordinate
 float4 GetMaterialDiffuse(in float2 vCoord)
 {
-	return LinearizeAlpha( tex2D(sDiffuseMapSampler, vCoord) );
+	return tex2D(sDiffuseMapSampler, vCoord);
 }
 
 // Fetch the material specular color at a texture coordinate
@@ -133,8 +133,8 @@ float3 GetPaintColor(in float2 vCoord, in float3 vUnitEye, in float3 vUnitSurfac
 struct PSData_Ambient 
 {
 	float4 Position		: POSITION;
-	float2 TexCoord		: TEXCOORD0_centroid;
-	float3 EyeVector	: TEXCOORD1_centroid;
+	float2 TexCoord		: TEXCOORD0;
+	float3 EyeVector	: TEXCOORD1;
 };
 
 PSData_Ambient Ambient_VS(MaterialVertex IN)
@@ -168,7 +168,7 @@ technique Ambient
 {
 	pass Draw
 	{
-		GAMMA_CORRECT_WRITE;
+		sRGBWriteEnable = TRUE;
 
 		VertexShader = compile vs_3_0 Ambient_VS();
 		PixelShader = compile ps_3_0 Ambient_PS();
@@ -182,9 +182,9 @@ technique Ambient
 struct PSData_Point 
 {
 	float4 Position			: POSITION;
-	float2 TexCoord			: TEXCOORD0_centroid;
-	float3 LightVector		: TEXCOORD1_centroid;
-	float3 EyeVector		: TEXCOORD2_centroid;
+	float2 TexCoord			: TEXCOORD0;
+	float3 LightVector		: TEXCOORD1;
+	float3 EyeVector		: TEXCOORD2;
 };
 
 PSData_Point Point_VS(MaterialVertex IN)
@@ -229,7 +229,7 @@ technique Point
 {
 	pass Draw
 	{
-		GAMMA_CORRECT_WRITE;
+		sRGBWriteEnable = TRUE;
 
 		VertexShader = compile vs_3_0 Point_VS();
 		PixelShader = compile ps_3_0 Point_PS();
@@ -243,9 +243,9 @@ technique Point
 struct PSData_PointFill
 {
 	float4 Position								: POSITION;
-	float2 TexCoord								: TEXCOORD0_centroid;
-	float3 EyeVector							: TEXCOORD1_centroid;
-	float3 LightVector[NUM_POINT_FILL_LIGHTS]	: TEXCOORD2_centroid;
+	float2 TexCoord								: TEXCOORD0;
+	float3 EyeVector							: TEXCOORD1;
+	float3 LightVector[NUM_POINT_FILL_LIGHTS]	: TEXCOORD2;
 };
 
 PSData_PointFill PointFill_VS(MaterialVertex IN)
@@ -270,7 +270,7 @@ technique PointFill
 {
 	pass Draw
 	{
-		GAMMA_CORRECT_WRITE;
+		sRGBWriteEnable = TRUE;
 
 		VertexShader = compile vs_3_0 PointFill_VS();
 		PixelShader = compile ps_3_0 PointFill_PS();
@@ -284,10 +284,10 @@ technique PointFill
 struct PSData_SpotProjector
 {
 	float4 Position			: POSITION;
-	float2 TexCoord			: TEXCOORD0_centroid;
-	float3 LightVector		: TEXCOORD1_centroid;
-	float3 EyeVector		: TEXCOORD2_centroid;
-	float4 LightMapCoord	: TEXCOORD3_centroid;
+	float2 TexCoord			: TEXCOORD0;
+	float3 LightVector		: TEXCOORD1;
+	float3 EyeVector		: TEXCOORD2;
+	float4 LightMapCoord	: TEXCOORD3;
 	float2 ClipPlanes		: TEXCOORD4;
 };	
 
@@ -343,7 +343,7 @@ technique SpotProjector
 {
 	pass Draw
 	{
-		GAMMA_CORRECT_WRITE;
+		sRGBWriteEnable = TRUE;
 
 		VertexShader = compile vs_3_0 SpotProjector_VS();
 		PixelShader = compile ps_3_0 SpotProjector_PS();
@@ -357,10 +357,10 @@ technique SpotProjector
 struct PSData_CubeProjector
 {
 	float4 Position			: POSITION;
-	float2 TexCoord			: TEXCOORD0_centroid;
-	float3 LightVector		: TEXCOORD1_centroid;
-	float3 EyeVector		: TEXCOORD2_centroid;
-	float3 LightMapCoord	: TEXCOORD3_centroid;
+	float2 TexCoord			: TEXCOORD0;
+	float3 LightVector		: TEXCOORD1;
+	float3 EyeVector		: TEXCOORD2;
+	float3 LightMapCoord	: TEXCOORD3;
 };	
 
 PSData_CubeProjector CubeProjector_VS(MaterialVertex IN) 
@@ -412,7 +412,7 @@ technique CubeProjector
 {
 	pass Draw
 	{
-		GAMMA_CORRECT_WRITE;
+		sRGBWriteEnable = TRUE;
 
 		VertexShader = compile vs_3_0 CubeProjector_VS();
 		PixelShader = compile ps_3_0 CubeProjector_PS();
@@ -426,10 +426,10 @@ technique CubeProjector
 struct PSData_Directional
 {
 	float4 Position			: POSITION;
-	float2 TexCoord			: TEXCOORD0_centroid;
-	float3 LightVector		: TEXCOORD1_centroid;
-	float3 EyeVector		: TEXCOORD2_centroid;
-	float3 TexSpace			: TEXCOORD3_centroid;
+	float2 TexCoord			: TEXCOORD0;
+	float3 LightVector		: TEXCOORD1;
+	float3 EyeVector		: TEXCOORD2;
+	float3 TexSpace			: TEXCOORD3;
 };
 
 PSData_Directional Directional_VS(MaterialVertex IN)
@@ -479,8 +479,8 @@ technique Directional
 {
 	pass Draw
 	{
-		GAMMA_CORRECT_WRITE;
-
+		sRGBWriteEnable = TRUE;
+		
 		VertexShader = compile vs_3_0 Directional_VS();
 		PixelShader = compile ps_3_0 Directional_PS();
 	}

@@ -39,14 +39,14 @@ MIPARAM_TEXTURE(tDiffuseMap, 0, 0, "", true, "Diffuse map of the material. This 
 MIPARAM_TEXTURE(tNormalMap, 0, 1, "", false, "Normal map of the material. This represents the normal of each point on the surface");
 
 //the samplers for those textures
-SAMPLER_WRAP_sRGB(sDiffuseMapSampler, tDiffuseMap);
+SAMPLER_WRAP(sDiffuseMapSampler, tDiffuseMap);
 // Note : Normal maps should have at least trilinear filtering
 sampler sNormalMapSampler = sampler_state
 {
 	texture = <tNormalMap>;
 	AddressU = Wrap;
 	AddressV = Wrap;
-	//MipFilter = Linear;
+	MipFilter = Linear;
 };
 
 //--------------------------------------------------------------------
@@ -74,7 +74,7 @@ float3 GetSurfaceNormal(float2 vCoord)
 // Fetch the material diffuse color at a texture coordinate
 float4 GetMaterialDiffuse(float2 vCoord)
 {
-	return LinearizeAlpha( tex2D(sDiffuseMapSampler, vCoord) );
+	return tex2D(sDiffuseMapSampler, vCoord);
 }
 
 //////////////////////////////////////////////////////////////////////////////
@@ -83,15 +83,15 @@ float4 GetMaterialDiffuse(float2 vCoord)
 
 struct PSData_Translucent 
 {
-	float4 Position		: POSITION;
+	float4 Position : POSITION;
 #ifndef SKELETAL_MATERIAL
-	float4 Color		: COLOR0;
+	float4 Color	: COLOR0;
 #endif
-	float2 TexCoord		: TEXCOORD0_centroid;
-	float4 ScreenCoord	: TEXCOORD1_centroid;
-	float3 TanSpace0	: TEXCOORD2_centroid;
-	float3 TanSpace1	: TEXCOORD3_centroid;
-	float3 TanSpace2	: TEXCOORD4_centroid;
+	float2 TexCoord : TEXCOORD0;
+	float4 ScreenCoord : TEXCOORD2;
+	float3 TanSpace0 : TEXCOORD3;
+	float3 TanSpace1 : TEXCOORD4;
+	float3 TanSpace2 : TEXCOORD5;
 };
 
 PSData_Translucent Translucent_VS(MaterialVertex IN)
@@ -132,17 +132,39 @@ float4 Translucent_PS(PSData_Translucent IN) : COLOR
 #else
 	float fVertAlpha = vObjectLightColor.w;
 #endif
-	float fScale	= vTransformedNormal.z * fOuterRefractScale * vNormalMap.w * fVertAlpha;
-	float2 vOffset	= vTransformedNormal.xy * float2(fScale,-fScale);
+	
+	float fScale = vTransformedNormal.z * fOuterRefractScale * vNormalMap.w * fVertAlpha;
+	float2 uv    = IN.ScreenCoord.xy / IN.ScreenCoord.w;
+	// float2 vOffset	= vTransformedNormal.xy * float2(fScale,-fScale);
+	float2 vOffset = float2( fScale, -fScale ) * refract( uv, vTransformedNormal.xy, 0.5f );
 
 	float fMiddleScale = vTransformedNormal.z * fInnerRefractScale * vNormalMap.w * fVertAlpha;
-	float2 vMiddleOffset = vTransformedNormal.xy * float2(fMiddleScale,-fMiddleScale);
+	// float2 vMiddleOffset = vTransformedNormal.xy * float2(fMiddleScale,-fMiddleScale);
+	float2 vMiddleOffset = float2( fMiddleScale, -fMiddleScale ) * refract( uv, vTransformedNormal.xy, 0.5f );
 	
-	vResult += tex2D(sCurFrameMapSampler, IN.ScreenCoord.xy / IN.ScreenCoord.w + vMiddleOffset) * 2.0;
-	vResult += tex2D(sCurFrameMapSampler, IN.ScreenCoord.xy / IN.ScreenCoord.w + vOffset * float2(0.0,1.0));
-	vResult += tex2D(sCurFrameMapSampler, IN.ScreenCoord.xy / IN.ScreenCoord.w + vOffset * float2(0.0,-1.0));
-	vResult += tex2D(sCurFrameMapSampler, IN.ScreenCoord.xy / IN.ScreenCoord.w + vOffset * float2(1.0,0.0));
-	vResult += tex2D(sCurFrameMapSampler, IN.ScreenCoord.xy / IN.ScreenCoord.w + vOffset * float2(-1.0,0.0));
+	// vResult += tex2D(sCurFrameMapSampler, IN.ScreenCoord.xy / IN.ScreenCoord.w + vMiddleOffset) * 2.0;
+	// vResult += tex2D(sCurFrameMapSampler, IN.ScreenCoord.xy / IN.ScreenCoord.w + vOffset * float2(0.0,1.0));
+	// vResult += tex2D(sCurFrameMapSampler, IN.ScreenCoord.xy / IN.ScreenCoord.w + vOffset * float2(0.0,-1.0));
+	// vResult += tex2D(sCurFrameMapSampler, IN.ScreenCoord.xy / IN.ScreenCoord.w + vOffset * float2(1.0,0.0));
+	// vResult += tex2D(sCurFrameMapSampler, IN.ScreenCoord.xy / IN.ScreenCoord.w + vOffset * float2(-1.0,0.0));
+	
+	vResult.x += tex2D( sCurFrameMapSampler, uv + vMiddleOffset * 0.9 ).x * 2.0;
+	vResult.x += tex2D( sCurFrameMapSampler, uv + vOffset * float2(  0.0,  0.9 ) ).x;
+	vResult.x += tex2D( sCurFrameMapSampler, uv + vOffset * float2(  0.0, -0.9 ) ).x;
+	vResult.x += tex2D( sCurFrameMapSampler, uv + vOffset * float2(  0.9,  0.0 ) ).x;
+	vResult.x += tex2D( sCurFrameMapSampler, uv + vOffset * float2( -0.9,  0.0 ) ).x;
+
+	vResult.y += tex2D( sCurFrameMapSampler, uv + vMiddleOffset ).y * 2.0;
+	vResult.y += tex2D( sCurFrameMapSampler, uv + vOffset * float2(  0.0,  1.0 ) ).y;
+	vResult.y += tex2D( sCurFrameMapSampler, uv + vOffset * float2(  0.0, -1.0 ) ).y;
+	vResult.y += tex2D( sCurFrameMapSampler, uv + vOffset * float2(  1.0,  0.0 ) ).y;
+	vResult.y += tex2D( sCurFrameMapSampler, uv + vOffset * float2( -1.0,  0.0 ) ).y;
+	
+	vResult.z += tex2D( sCurFrameMapSampler, uv + vMiddleOffset * 1.1 ).z * 2.0;
+	vResult.z += tex2D( sCurFrameMapSampler, uv + vOffset * float2(  0.0,  1.1 ) ).z;
+	vResult.z += tex2D( sCurFrameMapSampler, uv + vOffset * float2(  0.0, -1.1 ) ).z;
+	vResult.z += tex2D( sCurFrameMapSampler, uv + vOffset * float2(  1.1,  0.0 ) ).z;
+	vResult.z += tex2D( sCurFrameMapSampler, uv + vOffset * float2( -1.1,  0.0 ) ).z;
 
 	vResult /= 6.0;	
 	
@@ -158,11 +180,9 @@ technique Translucent
 	pass Draw
 	{
 		AlphaBlendEnable = False;
-		GAMMA_CORRECT_WRITE;
-
+		sRGBWriteEnable = TRUE;
+		
 		VertexShader = compile vs_3_0 Translucent_VS();
 		PixelShader = compile ps_3_0 Translucent_PS();
 	}
 }
-
-

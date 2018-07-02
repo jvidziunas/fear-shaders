@@ -37,14 +37,14 @@ MIPARAM_TEXTURE(tDiffuseMap, 0, 0, "", true, "Diffuse map of the material. This 
 MIPARAM_TEXTURE(tNormalMap, 0, 1, "", false, "Normal map of the material. This represents the normal of each point on the surface");
 
 //the samplers for those textures
-SAMPLER_WRAP_sRGB(sDiffuseMapSampler, tDiffuseMap);
+SAMPLER_WRAP(sDiffuseMapSampler, tDiffuseMap);
 // Note : Normal maps should have at least trilinear filtering
 sampler sNormalMapSampler = sampler_state
 {
 	texture = <tNormalMap>;
 	AddressU = Wrap;
 	AddressV = Wrap;
-	//MipFilter = Linear;
+	MipFilter = Linear;
 };
 
 //--------------------------------------------------------------------
@@ -72,7 +72,7 @@ float3 GetSurfaceNormal(float2 vCoord)
 // Fetch the material diffuse color at a texture coordinate
 float4 GetMaterialDiffuse(float2 vCoord)
 {
-	return LinearizeAlpha( tex2D(sDiffuseMapSampler, vCoord) );
+	return tex2D(sDiffuseMapSampler, vCoord);
 }
 
 //////////////////////////////////////////////////////////////////////////////
@@ -81,12 +81,12 @@ float4 GetMaterialDiffuse(float2 vCoord)
 
 struct PSData_Translucent 
 {
-	float4 Position		: POSITION;
-	float2 TexCoord		: TEXCOORD0_centroid;
-	float4 ScreenCoord	: TEXCOORD1_centroid;
-	float3 TanSpace0	: TEXCOORD2_centroid;
-	float3 TanSpace1	: TEXCOORD3_centroid;
-	float3 TanSpace2	: TEXCOORD4_centroid;
+	float4 Position : POSITION;
+	float2 TexCoord : TEXCOORD0;
+	float4 ScreenCoord : TEXCOORD2;
+	float3 TanSpace0 : TEXCOORD3;
+	float3 TanSpace1 : TEXCOORD4;
+	float3 TanSpace2 : TEXCOORD5;
 };
 
 PSData_Translucent Translucent_VS(MaterialVertex IN)
@@ -118,11 +118,13 @@ float4 Translucent_PS(PSData_Translucent IN) : COLOR
 	float3 vTransformedNormal = normalize(mul(mTangentToClip, vNormal));
 	
 	float fScale = vTransformedNormal.z * IN.ScreenCoord.z * fRefractScale;
-	float2 vOffset = vTransformedNormal.xy * float2(fScale,-fScale);
+	float2 uv    = IN.ScreenCoord.xy / IN.ScreenCoord.w;
+	// float2 vOffset = vTransformedNormal.xy * float2(fScale,-fScale);
+	float2 vOffset = float2( fScale, -fScale ) * refract( uv, vTransformedNormal.xy, 0.5f );
 	
-	vResult.x = tex2D(sCurFrameMapSampler, IN.ScreenCoord.xy / IN.ScreenCoord.w + vOffset * vChromaticSeparation.x).x;
-	vResult.y = tex2D(sCurFrameMapSampler, IN.ScreenCoord.xy / IN.ScreenCoord.w + vOffset * vChromaticSeparation.y).y;
-	vResult.z = tex2D(sCurFrameMapSampler, IN.ScreenCoord.xy / IN.ScreenCoord.w + vOffset * vChromaticSeparation.z).z;
+	vResult.x = tex2D(sCurFrameMapSampler, uv + vOffset * vChromaticSeparation.x).x;
+	vResult.y = tex2D(sCurFrameMapSampler, uv + vOffset * vChromaticSeparation.y).y;
+	vResult.z = tex2D(sCurFrameMapSampler, uv + vOffset * vChromaticSeparation.z).z;
 	
 	vResult *= GetMaterialDiffuse(IN.TexCoord);
 	
@@ -134,11 +136,7 @@ technique Translucent
 	pass Draw
 	{
 		AlphaBlendEnable = False;
-		GAMMA_CORRECT_WRITE;
-
 		VertexShader = compile vs_3_0 Translucent_VS();
 		PixelShader = compile ps_3_0 Translucent_PS();
 	}
 }
-
-

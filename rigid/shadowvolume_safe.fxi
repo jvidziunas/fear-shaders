@@ -12,7 +12,7 @@ technique ShadowVolume
 		StencilFail = Keep;
 		StencilZFail = Incr;
 		StencilPass = Keep;
-		VertexShader = compile vs_1_1 ShadowVolume_VS();
+		VertexShader = compile vs_3_0 ShadowVolume_VS();
 		ColorOp[0] = Disable;
 		AlphaOp[0] = Disable;
 	}
@@ -26,7 +26,7 @@ technique ShadowVolume
 		StencilFail = Keep;
 		StencilZFail = Decr;
 		StencilPass = Keep;
-		VertexShader = compile vs_1_1 ShadowVolume_VS();
+		VertexShader = compile vs_3_0 ShadowVolume_VS();
 		ColorOp[0] = Disable;
 		AlphaOp[0] = Disable;
 	}
@@ -44,7 +44,7 @@ technique DirectionalShadowVolume
 		StencilFail = Keep;
 		StencilZFail = Incr;
 		StencilPass = Keep;
-		VertexShader = compile vs_1_1 DirectionalShadowVolume_VS();
+		VertexShader = compile vs_3_0 DirectionalShadowVolume_VS();
 		ColorOp[0] = Disable;
 		AlphaOp[0] = Disable;
 	}
@@ -58,7 +58,7 @@ technique DirectionalShadowVolume
 		StencilFail = Keep;
 		StencilZFail = Decr;
 		StencilPass = Keep;
-		VertexShader = compile vs_1_1 DirectionalShadowVolume_VS();
+		VertexShader = compile vs_3_0 DirectionalShadowVolume_VS();
 		ColorOp[0] = Disable;
 		AlphaOp[0] = Disable;
 	}

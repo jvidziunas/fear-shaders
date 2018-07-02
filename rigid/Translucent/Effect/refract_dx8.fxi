@@ -1,0 +1,142 @@
+#include "..\..\..\sdk\basedefs.fxh"
+#include "..\..\..\sdk\skeletal.fxh"
+#include "..\..\..\sdk\transforms.fxh"
+#include "..\..\..\sdk\lightdefs.fxh"
+#include "..\..\..\sdk\texnormalize.fxh"
+
+//--------------------------------------------------------------------
+// Input/output formats
+
+// Represents a single input vertex that will be fed into each vertex shader
+struct MaterialVertex
+{
+    float3	Position	: POSITION;
+#ifndef SKELETAL_MATERIAL
+    float4	Color		: COLOR0;
+#endif
+    float3	Normal		: NORMAL; 
+    float2	TexCoord	: TEXCOORD0;
+	float3	Tangent		: TANGENT;
+	float3	Binormal	: BINORMAL;
+
+	DECLARE_SKELETAL_WEIGHTS
+};
+DECLARE_VERTEX_FORMAT(MaterialVertex);
+DECLARE_DESCRIPTION("This is the base refraction shader.");
+DECLARE_DOCUMENATION("Shaders\\Docs\\refract\\main.htm");
+
+//--------------------------------------------------------------------
+// Material parameters
+
+MIPARAM_SURFACEFLAGS;
+// The specular power range of the material
+MIPARAM_FLOAT(fRefractScale, 0.3, "Refraction scale");
+// the textures exported for the user
+MIPARAM_TEXTURE(tDiffuseMap, 0, 0, "", true, "Diffuse map of the material. This represents the color of the light refracted");
+MIPARAM_TEXTURE(tNormalMap, 0, 1, "", false, "Normal map of the material. This represents the normal of each point on the surface");
+
+//the samplers for those textures
+SAMPLER_WRAP(sDiffuseMapSampler, tDiffuseMap);
+// Note : Normal maps should have at least trilinear filtering
+sampler sNormalMapSampler = sampler_state
+{
+	texture = <tNormalMap>;
+	AddressU = Wrap;
+	AddressV = Wrap;
+	MipFilter = Linear;
+};
+
+//--------------------------------------------------------------------
+// Utility functions
+
+float3x3 GetInverseTangentSpace(MaterialVertex Vert)
+{
+	return GetInverseTangentSpace(	SKIN_VECTOR(Vert.Tangent, Vert), 
+									SKIN_VECTOR(Vert.Binormal, Vert), 
+									SKIN_VECTOR(Vert.Normal, Vert));
+}
+
+float3 GetPosition(MaterialVertex Vert)
+{
+	return SKIN_POINT(Vert.Position, Vert);
+}
+
+// Fetch the surface normal at a texture coordinate
+float3 GetSurfaceNormal(float2 vCoord)
+{
+	float3 vTexture = tex2D(sNormalMapSampler, vCoord).xyz;
+	return ColorToUnitVector(vTexture);
+}
+
+// Fetch the material diffuse color at a texture coordinate
+float4 GetMaterialDiffuse(float2 vCoord)
+{
+	return tex2D(sDiffuseMapSampler, vCoord);
+}
+
+//////////////////////////////////////////////////////////////////////////////
+// Translucent
+//////////////////////////////////////////////////////////////////////////////
+
+struct PSData_Translucent 
+{
+	float4 Position : POSITION;
+	float4 Color	: COLOR0;
+	float2 TexCoord : TEXCOORD0;
+	float2 NormalMapCoord : TEXCOORD1;
+	float3 EyeVec	: TEXCOORD2;
+};
+
+PSData_Translucent Translucent_VS(MaterialVertex IN)
+{
+	PSData_Translucent OUT;
+	OUT.Position = TransformToClipSpace(GetPosition(IN));
+#ifndef SKELETAL_MATERIAL
+	OUT.Color = IN.Color;
+#else
+	OUT.Color = 1;
+#endif
+	OUT.Color.w *= vObjectLightColor.w * fRefractScale * fRefractScale;
+	OUT.TexCoord = IN.TexCoord;
+	OUT.NormalMapCoord = IN.TexCoord;
+	float3x3 mTangentSpace = GetInverseTangentSpace(IN);
+	//OUT.EyeVec = mul(mTangentSpace, vObjectSpaceEyePos - GetPosition(IN));
+	// Calculate an eye vector using the object to clip matrix, adjusted by the output position.
+	// This is almost exactly equivalent to the above method, but has the advantage that it can
+	// be used on overlays.
+	float3 vCalculatedEye = mObjectToClip[0].xyz * (OUT.Position.x / OUT.Position.w) +
+							mObjectToClip[1].xyz * (OUT.Position.y / OUT.Position.w) +
+							mObjectToClip[2].xyz;
+	OUT.EyeVec = mul(mTangentSpace, -vCalculatedEye);
+	return OUT;
+}
+
+float4 Translucent_PS(PSData_Translucent IN) : COLOR
+{
+	float4 vResult = float4(0,0,0,1);
+
+	// Get the normal
+	float3 vNormal = GetSurfaceNormal(IN.NormalMapCoord);
+	// Get the eye vector
+	float3 vUnitEye = TexNormalizeVector(IN.EyeVec);
+
+	float fViewingAngle = dot(vNormal, vUnitEye);
+	
+	float4 vDiffuseMap = GetMaterialDiffuse(IN.TexCoord);
+	vResult = lerp(vDiffuseMap - (vDiffuseMap.w * IN.Color.w), 1, saturate(fViewingAngle));
+	
+	return vResult;
+}
+
+technique Translucent
+{
+	pass Draw
+	{
+		AlphaBlendEnable = True;
+		SrcBlend = DestColor;
+		DestBlend = Zero;
+		VertexShader = compile vs_1_1 Translucent_VS();
+		PixelShader = compile ps_1_1 Translucent_PS();
+	}
+}
+

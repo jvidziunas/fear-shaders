@@ -11,14 +11,14 @@
 
 // Depth map for the non-fog volume geometry
 shared texture tFogVolume_DepthMap;
-SAMPLER_CLAMP_POINT(sFogVolume_DepthMapSampler, tFogVolume_DepthMap);
+SAMPLER_CLAMP_POINT_LINEAR(sFogVolume_DepthMapSampler, tFogVolume_DepthMap);
 
 // Encoding map for fog volume depth values
 shared texture tFogVolume_EncodeMapRG;
-SAMPLER_WRAP_POINT(sFogVolume_EncodeMapRGSampler, tFogVolume_EncodeMapRG);
+SAMPLER_WRAP_POINT_LINEAR(sFogVolume_EncodeMapRGSampler, tFogVolume_EncodeMapRG);
 
 shared texture tFogVolume_EncodeMapBA;
-SAMPLER_WRAP_POINT(sFogVolume_EncodeMapBASampler, tFogVolume_EncodeMapBA);
+SAMPLER_WRAP_POINT_LINEAR(sFogVolume_EncodeMapBASampler, tFogVolume_EncodeMapBA);
 
 // Scene description values
 shared float fScene_FarZ;

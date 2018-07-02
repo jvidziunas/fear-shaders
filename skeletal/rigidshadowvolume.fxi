@@ -17,7 +17,7 @@ technique ShadowVolume <
 		CCW_StencilFail = Keep;
 		CCW_StencilZFail = Decr;
 		CCW_StencilPass = Keep;
-		VertexShader = compile vs_1_1 ShadowVolume_VS();
+		VertexShader = compile vs_3_0 ShadowVolume_VS();
 		ColorOp[0] = Disable;
 		AlphaOp[0] = Disable;
 	}
@@ -40,7 +40,7 @@ technique DirectionalShadowVolume <
 		CCW_StencilFail = Keep;
 		CCW_StencilZFail = Decr;
 		CCW_StencilPass = Keep;
-		VertexShader = compile vs_1_1 DirectionalShadowVolume_VS();
+		VertexShader = compile vs_3_0 DirectionalShadowVolume_VS();
 		ColorOp[0] = Disable;
 		AlphaOp[0] = Disable;
 	}

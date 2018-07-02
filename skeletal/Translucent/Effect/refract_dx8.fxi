@@ -1,0 +1,2 @@
+#define SKELETAL_MATERIAL
+#include "..\..\..\Rigid\Translucent\Effect\refract_DX8.fxi"

@@ -37,7 +37,7 @@ MIPARAM_FLOAT(fPanSpeedV, 0, "Diffuse texture panning speed in the V direction")
 MIPARAM_VECTOR4(vBaseColor, 1, 1, 1, 1, "Base cloud color & alpha");
 
 //the samplers for those textures
-SAMPLER_WRAP_sRGB(sDiffuseMapSampler, tDiffuseMap);
+SAMPLER_WRAP(sDiffuseMapSampler, tDiffuseMap);
 SAMPLER_WRAP(sControlMapSampler, tControlMap);
 
 //--------------------------------------------------------------------
@@ -68,10 +68,10 @@ float4 GetMaterialControl(float2 vCoord)
 // Translucent Pass 1: Diffuse with the global translucent color
 struct PSData_Translucent 
 {
-	float4 Position			: POSITION;
-	float2 DiffuseTexCoord	: TEXCOORD0_centroid;
-	float2 ControlTexCoord	: TEXCOORD1_centroid;
-	float4 Color			: COLOR0;
+	float4 Position : POSITION;
+	float2 DiffuseTexCoord : TEXCOORD0;
+	float2 ControlTexCoord : TEXCOORD1;
+	float4 Color : COLOR0;
 };
 
 PSData_Translucent Translucent_VS(MaterialVertex IN)
@@ -94,7 +94,7 @@ PSOutput Translucent_PS(PSData_Translucent IN)
 	PSOutput OUT;
 
 	float4 vDiffuseColor = GetMaterialDiffuse(IN.DiffuseTexCoord) * GetMaterialControl(IN.ControlTexCoord) * IN.Color;
-	OUT.Color = LinearizeAlpha(vDiffuseColor);
+	OUT.Color = /* GetLightDiffuseColor() * */ vDiffuseColor;
 	
 	return OUT;
 }
@@ -108,7 +108,7 @@ technique Translucent
 		CullMode	= CCW;
 		SrcBlend	= SrcAlpha;
 		DestBlend	= InvSrcAlpha;
-		GAMMA_CORRECT_WRITE;
+		sRGBWriteEnable = TRUE;
 
 		VertexShader = compile vs_3_0 Translucent_VS();
 		PixelShader = compile ps_3_0 Translucent_PS();

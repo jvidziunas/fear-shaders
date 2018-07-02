@@ -49,9 +49,9 @@ float3 GetPosition(MaterialVertex Vert)
 
 struct PSData_Translucent 
 {
-	float4 Position		: POSITION;
-	float2 TexCoord		: TEXCOORD0_centroid;
-	float4 ScreenCoord	: TEXCOORD1_centroid;
+	float4 Position : POSITION;
+	float2 TexCoord : TEXCOORD0;
+	float4 ScreenCoord : TEXCOORD2;
 };
 
 PSData_Translucent Translucent_VS(MaterialVertex IN)
@@ -85,8 +85,8 @@ technique Translucent
 	pass Draw
 	{
 		AlphaBlendEnable = False;
-		GAMMA_CORRECT_WRITE;
-
+		sRGBWriteEnable = TRUE;
+		
 		VertexShader = compile vs_3_0 Translucent_VS();
 		PixelShader = compile ps_3_0 Translucent_PS();
 	}

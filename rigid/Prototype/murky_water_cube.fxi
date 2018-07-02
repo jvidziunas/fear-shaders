@@ -52,7 +52,7 @@ MIPARAM_FLOAT(fNoise2Speed, 0.3, "Noise octave #2 Speed.");
 MIPARAM_FLOAT(fNoise2Rotation, 0, "Noise octave #2 Rotation.");
 
 //the samplers for those textures
-SAMPLER_WRAP_sRGB(sDiffuseMapSampler, tDiffuseMap);
+SAMPLER_WRAP(sDiffuseMapSampler, tDiffuseMap);
 // Note : Normal maps should have at least trilinear filtering
 sampler sNormalMapSampler = sampler_state
 {
@@ -61,9 +61,9 @@ sampler sNormalMapSampler = sampler_state
 	AddressV = Wrap;
 	MipFilter = Linear;
 };
-SAMPLER_WRAP(sWaveMapSampler, tWaveMap);
-SAMPLER_CLAMP_sRGB(sReflectionMapSampler, tReflectionMap_Low);
-SAMPLER_CLAMP(sFresnelTableSampler, tFresnelTable);
+SAMPLER_WRAP_LINEAR(sWaveMapSampler, tWaveMap);
+SAMPLER_CLAMP(sReflectionMapSampler, tReflectionMap_Low);
+SAMPLER_CLAMP_LINEAR(sFresnelTableSampler, tFresnelTable);
 
 //--------------------------------------------------------------------
 // Utility functions
@@ -95,7 +95,7 @@ float3 GetSurfaceNormal(float2 vCoord)
 // Fetch the material diffuse color at a texture coordinate
 float4 GetMaterialDiffuse(float2 vCoord)
 {
-	return LinearizeAlpha( tex2D(sDiffuseMapSampler, vCoord) );
+	return tex2D(sDiffuseMapSampler, vCoord);
 }
 
 float Sqr(float n)
@@ -110,30 +110,24 @@ float2 GetSurfaceNormal_Offset(float2 vCoord, float fOffsetCoordScale, float fOf
 	return vOffset * fOffsetScale;
 }
 
-float GetSoftIntersectionFactor()
-{
-	return 1.0f;
-}
-
 //////////////////////////////////////////////////////////////////////////////
 // Translucent
 //////////////////////////////////////////////////////////////////////////////
 
 struct PSData_Translucent 
 {
-	float4 Position			: POSITION;
-	float2 TexCoord			: TEXCOORD0_centroid;
-	float4 ScreenCoord		: TEXCOORD1_centroid;
-	float3 EyeVector		: TEXCOORD2_centroid;
-	float3x3 TangentToObj	: TEXCOORD3_centroid;
-	float2 TexCoord2		: TEXCOORD4_centroid;
-	float4 FrontPos			: TEXCOORD5;
+	float4 Position : POSITION;
+	float2 TexCoord : TEXCOORD0;
+	float4 ScreenCoord : TEXCOORD1;
+	float3 EyeVector : TEXCOORD2;
+	float3x3 TangentToObj : TEXCOORD3;
+	float2 TexCoord2 : TEXCOORD6;
 };
 
 PSData_Translucent Translucent_VS(MaterialVertex IN)
 {
 	PSData_Translucent OUT;
-	OUT.Position = OUT.FrontPos = TransformToClipSpace(GetPosition(IN));
+	OUT.Position = TransformToClipSpace(GetPosition(IN));
 	OUT.TexCoord = IN.TexCoord;
 	OUT.ScreenCoord = GetScreenTexCoords(OUT.Position);
 	OUT.ScreenCoord.z = OUT.ScreenCoord.z / fFogDepth;
@@ -159,15 +153,12 @@ float4 Translucent_PS(PSData_Translucent IN) : COLOR
 	float4 vResult = float4(0,0,0,1);
 	
 	// Sample the front map
-	float fFront = IN.FrontPos.z/IN.FrontPos.w;
+	float fFront = IN.ScreenCoord.z;
 	// Sample the back map
 	float fBack = DecodeDepth(tex2Dproj(sDepthMapSampler, IN.ScreenCoord));
 	// Get the difference
 	float fDepth = (fBack / fFogDepth) - fFront;
 	fDepth = sqrt(fDepth);
-	
-	float fSoftIntersectionDepth = max( (fBack - fFront), 0.0f );
-	float fSoftIntersectionFactor = saturate( GetSoftIntersectionFactor() * fSoftIntersectionDepth );
 
 	vResult = float4(vFogColor, saturate(fDepth + fFogBias));
 	
@@ -189,7 +180,7 @@ float4 Translucent_PS(PSData_Translucent IN) : COLOR
 	IN.EyeVector = normalize(IN.EyeVector / IN.EyeVector.z);
 	float fFresnelReflection = tex1D(sFresnelTableSampler, dot(IN.EyeVector, vOffsetNormal)) * 0.5;
 	vResult.xyz = lerp(vResult.xyz, vReflection, max(fFresnelReflection, saturate(1 - vResult.w)));
-	vResult.w = max(vResult.w, fFresnelReflection) * fSoftIntersectionFactor;
+	vResult.w = max(vResult.w, fFresnelReflection);
 	
 	// Note : This is how the fresnel equation should get evaluated without the table..
 	/*
@@ -215,7 +206,7 @@ technique FogVolume_Blend
 		ZWriteEnable = True;
 		SrcBlend = SrcAlpha;
 		DestBlend = InvSrcAlpha;
-		GAMMA_CORRECT_WRITE;
+		sRGBWriteEnable = TRUE;
 
 		VertexShader = compile vs_3_0 Translucent_VS();
 		PixelShader = compile ps_3_0 Translucent_PS();

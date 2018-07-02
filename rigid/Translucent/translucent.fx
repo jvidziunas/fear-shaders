@@ -29,7 +29,7 @@ MIPARAM_SURFACEFLAGS;
 MIPARAM_TEXTURE(tDiffuseMap, 0, 0, "", true, "Diffuse map of the material. This represents the color of the light reflected");
 
 //the samplers for those textures
-SAMPLER_WRAP_sRGB(sDiffuseMapSampler, tDiffuseMap);
+SAMPLER_WRAP(sDiffuseMapSampler, tDiffuseMap);
 
 //--------------------------------------------------------------------
 // Utility functions
@@ -42,7 +42,7 @@ float3 GetPosition(MaterialVertex Vert)
 // Fetch the material diffuse color at a texture coordinate
 float4 GetMaterialDiffuse(float2 vCoord)
 {
-	return LinearizeAlpha( tex2D(sDiffuseMapSampler, vCoord) );
+	return tex2D(sDiffuseMapSampler, vCoord);
 }
 
 //////////////////////////////////////////////////////////////////////////////
@@ -53,10 +53,10 @@ float4 GetMaterialDiffuse(float2 vCoord)
 // Translucent Pass 1: Diffuse with the global translucent color
 struct PSData_Translucent 
 {
-	float4 Position		: POSITION;
-	float2 DiffuseTexCoord	: TEXCOORD0_centroid;
+	float4 Position : POSITION;
+	float2 DiffuseTexCoord : TEXCOORD0;
 #ifndef SKELETAL_MATERIAL
-	float4 Color			: COLOR0;
+	float4 Color : COLOR0;
 #endif
 };
 
@@ -80,7 +80,7 @@ PSOutput Translucent_PS(PSData_Translucent IN)
 #else
 	float4 vDiffuseColor = GetMaterialDiffuse(IN.DiffuseTexCoord);
 #endif
-	OUT.Color = LinearizeAlpha( GetLightDiffuseColor() * vDiffuseColor );
+	OUT.Color = GetLightDiffuseColor() * vDiffuseColor;
 	
 	return OUT;
 }
@@ -91,10 +91,10 @@ technique Translucent
 {
 	pass p0 
 	{
-		CullMode		= CCW;
-		SrcBlend		= SrcAlpha;
+		CullMode	= CCW;
+		SrcBlend	= SrcAlpha;
 		DestBlend	= InvSrcAlpha;
-		GAMMA_CORRECT_WRITE;
+		sRGBWriteEnable = TRUE;
 
 		VertexShader = compile vs_3_0 Translucent_VS();
 		PixelShader = compile ps_3_0 Translucent_PS();

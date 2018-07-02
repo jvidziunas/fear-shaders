@@ -27,7 +27,7 @@ MIPARAM_FLOAT(fSliceResY, 384, "Slice texture Y resolution - Initialized at runt
 MIPARAM_FLOAT(fAlphaBlend, 1.0, "Alpha blending - Initialized at runtime");
 
 //the samplers for those textures
-SAMPLER_CLAMP(sSliceMapSampler, tSliceMap);
+SAMPLER_CLAMP_LINEAR(sSliceMapSampler, tSliceMap);
 
 //--------------------------------------------------------------------
 // Utility functions
@@ -45,9 +45,9 @@ float3 GetPosition(MaterialVertex Vert)
 // Translucent Pass 1: Diffuse with the global translucent color
 struct PSData_Translucent 
 {
-	float4 Position		: POSITION;
-	float4 ScreenPos	: TEXCOORD0_centroid;
-	float4 Color		: TEXCOORD1;
+	float4 Position : POSITION;
+	float4 ScreenPos : TEXCOORD0;
+	float4 Color : TEXCOORD1;
 };
 
 PSData_Translucent Translucent_VS(MaterialVertex IN)
@@ -83,7 +83,7 @@ float4 Translucent_PS(PSData_Translucent IN) : COLOR
 	
 	intensity = saturate(intensity * IN.Color.w);
 	vResult.xyz = intensity * IN.Color.xyz;
-	vResult.w = LinearizeAlpha( 1.0f - (intensity * fAlphaBlend) );
+	vResult.w = 1.0f - (intensity * fAlphaBlend);
 
 	return vResult;
 }
@@ -94,13 +94,13 @@ technique Translucent
 {
 	pass p0 
 	{
-		CullMode	= CW;
-		ZFunc		= Always;
-		AlphaBlendEnable = True;
-		SrcBlend	= One;
-		DestBlend	= SrcAlpha;
-		FogEnable	= False;
-		GAMMA_CORRECT_WRITE;
+		CullMode			= CW;
+		ZFunc				= Always;
+		AlphaBlendEnable	= True;
+		sRGBWriteEnable		= TRUE;
+		SrcBlend			= One;
+		DestBlend			= SrcAlpha;
+		FogEnable			= False;
 
 		VertexShader = compile vs_3_0 Translucent_VS();
 		PixelShader = compile ps_3_0 Translucent_PS();

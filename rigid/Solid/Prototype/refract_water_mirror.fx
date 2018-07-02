@@ -45,14 +45,15 @@ MIPARAM_TEXTURE(tRefractionMap, 0, 3, "", false, "Refraction map of the material
 MIPARAM_TEXTURE(tFresnelTable, 0, 4, "", false, "Fresnel look-up table. This is used to determine the amount of reflection to apply based on the viewing angle.");
 
 //the samplers for those textures
-SAMPLER_WRAP_sRGB(sDiffuseMapSampler, tDiffuseMap);
+SAMPLER_WRAP(sDiffuseMapSampler, tDiffuseMap);
+//SAMPLER_CLAMP(sReflectionMapSampler, tReflectionMap);
 sampler sReflectionMapSampler = sampler_state
 {
 	texture = <tReflectionMap>;
 	AddressU = Clamp;
 	AddressV = Clamp;
 	MagFilter = Linear;
-	GAMMA_CORRECT_READ;
+	SRGBTexture = true;
 };
 sampler sRefractionMapSampler = sampler_state
 {
@@ -60,9 +61,9 @@ sampler sRefractionMapSampler = sampler_state
 	AddressU = Clamp;
 	AddressV = Clamp;
 	MagFilter = Linear;
-	GAMMA_CORRECT_READ;
+	SRGBTexture = true;
 };
-SAMPLER_CLAMP(sFresnelTableSampler, tFresnelTable);
+SAMPLER_CLAMP_LINEAR(sFresnelTableSampler, tFresnelTable);
 
 //--------------------------------------------------------------------
 // Utility functions
@@ -82,7 +83,7 @@ float3 GetPosition(MaterialVertex Vert)
 // Fetch the material diffuse color at a texture coordinate
 float4 GetMaterialDiffuse(float2 vCoord)
 {
-	return LinearizeAlpha( tex2D(sDiffuseMapSampler, vCoord) );
+	return tex2D(sDiffuseMapSampler, vCoord);
 }
 
 //////////////////////////////////////////////////////////////////////////////
@@ -91,13 +92,13 @@ float4 GetMaterialDiffuse(float2 vCoord)
 
 struct PSData_Translucent 
 {
-	float4 Position		: POSITION;
-	float2 TexCoord		: TEXCOORD0_centroid;
-	float4 ScreenCoord	: TEXCOORD1_centroid;
-	float4 RefractOfs		: TEXCOORD2_centroid;
-	float4 ReflectPos		: TEXCOORD3_centroid;
-	float3 EyeVector		: TEXCOORD4_centroid;
-	float  Flip			: TEXCOORD5;
+	float4 Position : POSITION;
+	float2 TexCoord : TEXCOORD0;
+	float4 ScreenCoord : TEXCOORD1;
+	float4 RefractOfs : TEXCOORD2;
+	float4 ReflectPos : TEXCOORD3;
+	float3 EyeVector : TEXCOORD4;
+	float  Flip : TEXCOORD5;
 };
 
 PSData_Translucent Translucent_VS(MaterialVertex IN)
@@ -144,8 +145,6 @@ float4 Translucent_PS(PSData_Translucent IN) : COLOR
 	// Get the difference
 	float fDepth = saturate(fBack / fWaterDepth - fFront);
 	
-	vResult.xyz = float3( fFront, fBack, fDepth );
-#if 0
 	// Get the texture sampling offset
 	float fScale = fDepth * fRefractScale;
 	float4 vOffset = IN.RefractOfs * float4(fScale, -fScale, 1,1);
@@ -167,10 +166,9 @@ float4 Translucent_PS(PSData_Translucent IN) : COLOR
 		vReflect = tex2Dproj(sRefractionMapSampler, IN.ReflectPos);
 
 	// Do a lookup in the fresnel table to calculate the reflection opacity
-	float fFresnel = tex1D( sFresnelTableSampler, normalize(IN.EyeVector).z );
+	float fFresnel = tex1D(sFresnelTableSampler, normalize(IN.EyeVector).z);
 	
 	vResult.xyz = lerp(vResult.xyz, vReflect, fFresnel);
-#endif
 	
 	return vResult;
 }
@@ -180,12 +178,12 @@ technique FogVolume_Blend
 	pass Draw
 	{
 		CullMode = None;
-		AlphaBlendEnable = True;
+		AlphaBlendEnable = False;
 		ZEnable = True;
 		ZFunc = Less;
 		ZWriteEnable = True;
-		GAMMA_CORRECT_WRITE;
-
+		sRGBWriteEnable = TRUE;
+		
 		VertexShader = compile vs_3_0 Translucent_VS();
 		PixelShader = compile ps_3_0 Translucent_PS();
 	}

@@ -10,20 +10,6 @@ shared float4x4 mDrawPrimToClip;
 //the current texture that we are rendering primitives with
 shared texture  tDrawPrimTexture;
 
-#ifndef FORCE_NO_GAMMA_CORRECTION
-#	define GAMMA_CORRECT_READ		SRGBTexture = true
-#	define GAMMA_CORRECT_WRITE		sRGBWriteEnable = true
-#else
-#	define GAMMA_CORRECT_READ		SRGBTexture = false
-#	define GAMMA_CORRECT_WRITE		sRGBWriteEnable = false
-#endif
-
-float4 LinearizeAlpha( float4 srcCol ) { return srcCol; }
-float LinearizeAlpha( float srcAlpha ) { return srcAlpha; }
-
-#define GAMMA_LINEAR_DATA			SRGBTexture = false
-#define GAMMA_LINEAR_RENDERTARGET	sRGBWriteEnable = false
-
 //the samplers for our texture
 sampler sDrawPrimTextureWrap = sampler_state
 				{
@@ -31,7 +17,17 @@ sampler sDrawPrimTextureWrap = sampler_state
 					AddressU = Wrap;
 					AddressV = Wrap;
 					MipMapLODBias = -1.0;
-					GAMMA_CORRECT_READ;
+					SRGBTexture	= true;
 				};
+
+float3 sRGBToLinear(float3 color)
+{
+	return color.rgb <= 0.04045.rrr ? color * (1.0.rrr / 12.92.rrr) : pow( (color + 0.055.rrr) * (1.0.rrr / 1.055.rrr), 2.4.rrr );
+}
+
+float4 sRGBToLinear(float4 color)
+{
+	return float4( sRGBToLinear(color.rgb), color.a );
+}
 
 #endif

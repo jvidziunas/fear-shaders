@@ -36,7 +36,7 @@ MIPARAM_FLOAT(BleachBypass_Threshold, 2.0, "Bleach bypass threshold boost");
 
 // the current frame
 texture tCurFrameMap;
-SAMPLER_CLAMP_sRGB(sCurFrameMapSampler, tCurFrameMap);
+SAMPLER_CLAMP(sCurFrameMapSampler, tCurFrameMap);
 
 //--------------------------------------------------------------------
 // Utility functions
@@ -108,10 +108,10 @@ float3 Saturate(float3 vColor)
 
 struct PSData_Translucent 
 {
-	float4 Position		: POSITION;
-	float2 ScreenCoord	: TEXCOORD0_centroid;
-	float2 BloomOffsetX : TEXCOORD1_centroid;
-	float2 BloomOffsetY : TEXCOORD2_centroid;
+	float4 Position : POSITION;
+	float2 ScreenCoord : TEXCOORD0;
+	float2 BloomOffsetX : TEXCOORD1;
+	float2 BloomOffsetY : TEXCOORD2;
 };
 
 PSData_Translucent Translucent_VS(MaterialVertex IN)
@@ -177,7 +177,7 @@ technique Translucent
 		AlphaBlendEnable = True;
 		SrcBlend = SrcAlpha;
 		DestBlend = InvSrcAlpha;
-		GAMMA_CORRECT_WRITE;
+		sRGBWriteEnable = TRUE;
 
 		VertexShader = compile vs_3_0 Translucent_VS();
 		PixelShader = compile ps_3_0 Translucent_PS();

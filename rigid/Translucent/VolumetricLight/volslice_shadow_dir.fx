@@ -29,8 +29,8 @@ MIPARAM_FLOAT(fDistanceAttenuationScale, 1.0, "Distance Attenuation Scale - Init
 
 //the samplers for those textures
 SAMPLER_CLAMP(sCookieMapSampler, tCookieMap);
-SAMPLER_CLAMP(sAttenuationMapSampler, tAttenuationMap);
-SAMPLER_CLAMP_POINT(sVLDepthMapSampler, tVLDepthMap);
+SAMPLER_CLAMP_LINEAR(sAttenuationMapSampler, tAttenuationMap);
+SAMPLER_CLAMP_POINT_LINEAR(sVLDepthMapSampler, tVLDepthMap);
 
 //--------------------------------------------------------------------
 // Utility functions
@@ -49,8 +49,8 @@ float3 GetPosition(MaterialVertex Vert)
 struct PSData_Translucent 
 {
 	float4 Position : POSITION;
-	float4 LightPos : TEXCOORD0_centroid;
-	float4 Color	: TEXCOORD1;
+	float4 LightPos : TEXCOORD0;
+	float4 Color : TEXCOORD1;
 };
 
 PSData_Translucent Translucent_VS(MaterialVertex IN)
@@ -74,8 +74,8 @@ float4 Translucent_PS(PSData_Translucent IN) : COLOR
 		
 	vResult.xyzw = intensity * IN.Color;
 
-	float fDistance = IN.LightPos.z * fDistanceAttenuationScale;
-	float fAttenuation = tex1D( sAttenuationMapSampler, fDistance ).x;
+	half fDistance = IN.LightPos.z * fDistanceAttenuationScale;
+	half fAttenuation = tex1D(sAttenuationMapSampler, fDistance).x;
 	vResult.xyzw *= fAttenuation;
 	
 	return vResult;
@@ -87,12 +87,12 @@ technique Translucent
 {
 	pass p0 
 	{
-		CullMode	= None;
-		AlphaBlendEnable = True;
-		SrcBlend	= One;
-		DestBlend	= One;
-		FogColor	= 0;
-		GAMMA_CORRECT_WRITE;
+		CullMode			= None;
+		AlphaBlendEnable	= True;
+		sRGBWriteEnable		= TRUE;
+		SrcBlend			= One;
+		DestBlend			= One;
+		FogColor			= 0;
 
 		VertexShader = compile vs_3_0 Translucent_VS();
 		PixelShader = compile ps_3_0 Translucent_PS();

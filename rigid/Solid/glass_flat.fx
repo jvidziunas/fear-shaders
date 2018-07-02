@@ -34,7 +34,7 @@ MIPARAM_TEXTURE(tDiffuseMap, 0, 0, "", true, "Diffuse map of the material. This 
 MIPARAM_TEXTURE(tSpecularMap, 0, 1, "", false, "Specular map of the material. This represents the color of light bounced off the surface");
 
 //the samplers for those textures
-SAMPLER_WRAP_sRGB(sDiffuseMapSampler, tDiffuseMap);
+SAMPLER_WRAP(sDiffuseMapSampler, tDiffuseMap);
 SAMPLER_WRAP(sSpecularMapSampler, tSpecularMap);
 
 //--------------------------------------------------------------------
@@ -66,7 +66,7 @@ float3 GetSurfaceNormal_Unit(float2 vCoord)
 // Fetch the material diffuse color at a texture coordinate
 float4 GetMaterialDiffuse(float2 vCoord)
 {
-	return LinearizeAlpha( tex2D(sDiffuseMapSampler, vCoord) ) * vObjectColor;
+	return tex2D(sDiffuseMapSampler, vCoord) * vObjectColor;
 }
 
 // Fetch the material specular color at a texture coordinate
@@ -90,9 +90,9 @@ technique Ambient
 struct PSData_Point 
 {
 	float4 Position			: POSITION;
-	float2 TexCoord			: TEXCOORD0_centroid;
-	float3 LightVector		: TEXCOORD1_centroid;
-	float3 EyeVector		: TEXCOORD2_centroid;
+	float2 TexCoord			: TEXCOORD0;
+	float3 LightVector		: TEXCOORD1;
+	float3 EyeVector		: TEXCOORD2;
 };
 
 PSData_Point Point_VS(MaterialVertex IN)
@@ -107,12 +107,9 @@ PSData_Point Point_VS(MaterialVertex IN)
 float4 Point_PS(PSData_Point IN) : COLOR
 {
 	IN.LightVector.z = abs(IN.LightVector.z);
-	float4 vDiffuseColor = GetMaterialDiffuse(IN.TexCoord);
-	float4 vReturnColor = GetLitPixelColor(IN.LightVector, IN.EyeVector, 
-		GetSurfaceNormal_Unit(IN.TexCoord), vDiffuseColor, GetMaterialSpecular(IN.TexCoord), 
+	return GetLitPixelColor(IN.LightVector, IN.EyeVector, 
+		GetSurfaceNormal_Unit(IN.TexCoord), GetMaterialDiffuse(IN.TexCoord), GetMaterialSpecular(IN.TexCoord), 
 		GetLightDiffuseColor().xyz, GetLightSpecularColor(), fMaxSpecularPower);
-	vReturnColor.w = vDiffuseColor.w;
-	return vReturnColor;
 }
 
 technique Point
@@ -123,9 +120,6 @@ technique Point
 		ZFunc = LessEqual;
 		StencilEnable = False;
 		SrcBlend = One;
-		DestBlend = InvSrcAlpha;
-		GAMMA_CORRECT_WRITE;
-
 		VertexShader = compile vs_3_0 Point_VS();
 		PixelShader = compile ps_3_0 Point_PS();
 	}
@@ -138,8 +132,8 @@ technique Point
 struct PSData_PointFill
 {
 	float4 Position								: POSITION;
-	float2 TexCoord								: TEXCOORD0_centroid;
-	float3 LightVector[NUM_POINT_FILL_LIGHTS]	: TEXCOORD1_centroid;
+	float2 TexCoord								: TEXCOORD0;
+	float3 LightVector[NUM_POINT_FILL_LIGHTS]	: TEXCOORD2;
 };
 
 PSData_PointFill PointFill_VS(MaterialVertex IN)
@@ -153,10 +147,7 @@ float4 PointFill_PS(PSData_PointFill IN) : COLOR
 {
 	for (int loop = 0; loop < NUM_POINT_FILL_LIGHTS; ++loop)
 		IN.LightVector[loop].z = abs(IN.LightVector[loop].z);
-	float4 vDiffuseColor = GetMaterialDiffuse(IN.TexCoord);
-	float4 vReturnColor = GetPointFillPixelColor(IN.LightVector, GetSurfaceNormal_Unit(IN.TexCoord), vDiffuseColor);
-	vReturnColor.w = vDiffuseColor.w;
-	return vReturnColor;
+	return GetPointFillPixelColor(IN.LightVector, GetSurfaceNormal_Unit(IN.TexCoord), GetMaterialDiffuse(IN.TexCoord));
 }
 
 technique PointFill
@@ -167,9 +158,6 @@ technique PointFill
 		ZFunc = LessEqual;
 		StencilEnable = False;
 		SrcBlend = One;
-		DestBlend = InvSrcAlpha;
-		GAMMA_CORRECT_WRITE;
-
 		VertexShader = compile vs_3_0 PointFill_VS();
 		PixelShader = compile ps_3_0 PointFill_PS();
 	}
@@ -182,10 +170,10 @@ technique PointFill
 struct PSData_SpotProjector
 {
 	float4 Position			: POSITION;
-	float2 TexCoord			: TEXCOORD0_centroid;
-	float3 LightVector		: TEXCOORD1_centroid;
-	float3 EyeVector		: TEXCOORD2_centroid;
-	float4 LightMapCoord	: TEXCOORD3_centroid;
+	float2 TexCoord			: TEXCOORD0;
+	float3 LightVector		: TEXCOORD1;
+	float3 EyeVector		: TEXCOORD2;
+	float4 LightMapCoord	: TEXCOORD3;
 	float2 ClipPlanes		: TEXCOORD4;
 };	
 
@@ -208,16 +196,13 @@ PSData_SpotProjector SpotProjector_VS(MaterialVertex IN)
 float4 SpotProjector_PS(PSData_SpotProjector IN) : COLOR
 {
 	IN.LightVector.z = abs(IN.LightVector.z);
-	float4 vDiffuseColor = GetMaterialDiffuse(IN.TexCoord);
 	// Get the pixel
 	float4 vPixelColor = GetLitPixelColor(IN.LightVector, IN.EyeVector, 
-		GetSurfaceNormal_Unit(IN.TexCoord), vDiffuseColor, GetMaterialSpecular(IN.TexCoord), 
+		GetSurfaceNormal_Unit(IN.TexCoord), GetMaterialDiffuse(IN.TexCoord), GetMaterialSpecular(IN.TexCoord), 
 		DX9GetSpotProjectorDiffuseColor(IN.LightMapCoord), DX9GetSpotProjectorSpecularColor(IN.LightMapCoord), fMaxSpecularPower);
 
 	// Perform clipping
-	vPixelColor *= DX9GetSpotProjectorClipResult(IN.ClipPlanes, IN.LightMapCoord);
-	vPixelColor.w = vDiffuseColor.w;
-	return vPixelColor;
+	return vPixelColor * DX9GetSpotProjectorClipResult(IN.ClipPlanes, IN.LightMapCoord);
 }
 
 technique SpotProjector
@@ -228,9 +213,6 @@ technique SpotProjector
 		ZFunc = LessEqual;
 		StencilEnable = False;
 		SrcBlend = One;
-		DestBlend = InvSrcAlpha;
-		GAMMA_CORRECT_WRITE;
-
 		VertexShader = compile vs_3_0 SpotProjector_VS();
 		PixelShader = compile ps_3_0 SpotProjector_PS();
 	}
@@ -243,10 +225,10 @@ technique SpotProjector
 struct PSData_CubeProjector
 {
 	float4 Position			: POSITION;
-	float2 TexCoord			: TEXCOORD0_centroid;
-	float3 LightVector		: TEXCOORD1_centroid;
-	float3 EyeVector		: TEXCOORD2_centroid;
-	float3 LightMapCoord	: TEXCOORD3_centroid;
+	float2 TexCoord			: TEXCOORD0;
+	float3 LightVector		: TEXCOORD1;
+	float3 EyeVector		: TEXCOORD2;
+	float3 LightMapCoord	: TEXCOORD3;
 };	
 
 PSData_CubeProjector CubeProjector_VS(MaterialVertex IN) 
@@ -265,13 +247,11 @@ PSData_CubeProjector CubeProjector_VS(MaterialVertex IN)
 float4 CubeProjector_PS(PSData_CubeProjector IN) : COLOR
 {
 	IN.LightVector.z = abs(IN.LightVector.z);
-	float4 vDiffuseColor = GetMaterialDiffuse(IN.TexCoord);
+
 	// Get the pixel
-	float4 vReturnColor = GetLitPixelColor(IN.LightVector, IN.EyeVector, 
-		GetSurfaceNormal_Unit(IN.TexCoord), vDiffuseColor, GetMaterialSpecular(IN.TexCoord), 
+	return GetLitPixelColor(IN.LightVector, IN.EyeVector, 
+		GetSurfaceNormal_Unit(IN.TexCoord), GetMaterialDiffuse(IN.TexCoord), GetMaterialSpecular(IN.TexCoord), 
 		GetCubeProjectorDiffuseColor(IN.LightMapCoord), GetCubeProjectorSpecularColor(IN.LightMapCoord), fMaxSpecularPower);
-	vReturnColor.w = vDiffuseColor.w;
-	return vReturnColor;
 }
 
 technique CubeProjector
@@ -282,9 +262,6 @@ technique CubeProjector
 		ZFunc = LessEqual;
 		StencilEnable = False;
 		SrcBlend = One;
-		DestBlend = InvSrcAlpha;
-		GAMMA_CORRECT_WRITE;
-
  		VertexShader = compile vs_3_0 CubeProjector_VS();
 		PixelShader = compile ps_3_0 CubeProjector_PS();
 	}
@@ -297,10 +274,10 @@ technique CubeProjector
 struct PSData_Directional
 {
 	float4 Position			: POSITION;
-	float2 TexCoord			: TEXCOORD0_centroid;
-	float3 LightVector		: TEXCOORD1_centroid;
-	float3 EyeVector		: TEXCOORD2_centroid;
-	float3 TexSpace			: TEXCOORD3_centroid;
+	float2 TexCoord			: TEXCOORD0;
+	float3 LightVector		: TEXCOORD1;
+	float3 EyeVector		: TEXCOORD2;
+	float3 TexSpace			: TEXCOORD3;
 };
 
 PSData_Directional Directional_VS(MaterialVertex IN)
@@ -314,12 +291,10 @@ PSData_Directional Directional_VS(MaterialVertex IN)
 
 float4 Directional_PS(PSData_Directional IN) : COLOR
 {
-	float4 vDiffuseColor = GetMaterialDiffuse(IN.TexCoord);
 	IN.LightVector.z = abs(IN.LightVector.z);
-	float4 vReturnColor = GetDirectionalLitPixelColor(normalize(IN.LightVector), IN.TexSpace, IN.EyeVector, GetSurfaceNormal_Unit(IN.TexCoord),
-			vDiffuseColor, GetMaterialSpecular(IN.TexCoord), fMaxSpecularPower);
-	vReturnColor.w = vDiffuseColor.w;
-	return vReturnColor;
+
+	return GetDirectionalLitPixelColor(normalize(IN.LightVector), IN.TexSpace, IN.EyeVector, GetSurfaceNormal_Unit(IN.TexCoord),
+			GetMaterialDiffuse(IN.TexCoord), GetMaterialSpecular(IN.TexCoord), fMaxSpecularPower);
 }
 
 //----------------------------------------------------------------------------
@@ -332,9 +307,6 @@ technique Directional
 		ZFunc = LessEqual;
 		StencilEnable = False;
 		SrcBlend = One;
-		DestBlend = InvSrcAlpha;
-		GAMMA_CORRECT_WRITE;
-
 		VertexShader = compile vs_3_0 Directional_VS();
 		PixelShader = compile ps_3_0 Directional_PS();
 	}

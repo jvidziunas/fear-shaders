@@ -1,0 +1,2 @@
+#define SKELETAL_MATERIAL
+#include "..\..\Rigid\prototype\dissolve_DX8.fxi"

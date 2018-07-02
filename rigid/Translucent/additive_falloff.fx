@@ -28,7 +28,7 @@ MIPARAM_SURFACEFLAGS;
 MIPARAM_TEXTURE(tDiffuseMap, 0, 0, "", true, "Diffuse map of the material.");
 
 //the samplers for those textures
-SAMPLER_WRAP_sRGB(sDiffuseMapSampler, tDiffuseMap);
+SAMPLER_WRAP(sDiffuseMapSampler, tDiffuseMap);
 
 //--------------------------------------------------------------------
 // Utility functions
@@ -52,10 +52,10 @@ float4 GetMaterialDiffuse(float2 vCoord)
 // Translucent Pass 1: Diffuse with the global translucent color
 struct PSData_Translucent 
 {
-	float4 Position			: POSITION;
-	float2 DiffuseTexCoord	: TEXCOORD0_centroid;
-	float3 EyePos			: TEXCOORD1_centroid;
-	float3 Normal			: TEXCOORD2_centroid;
+	float4 Position : POSITION;
+	float2 DiffuseTexCoord : TEXCOORD0;
+	float3 EyePos : TEXCOORD1;
+	float3 Normal : TEXCOORD2;
 };
 
 PSData_Translucent Translucent_VS(MaterialVertex IN)
@@ -81,7 +81,7 @@ PSOutput Translucent_PS(PSData_Translucent IN)
 	float4 Tint = float4(Diffuse.xyz, Diffuse.w * clamp(dot(vUnitEyePos, vUnitNormal), 0, 1));
 	float4 Texture = GetMaterialDiffuse(IN.DiffuseTexCoord);
 
-	OUT.Color = LinearizeAlpha( Texture * Tint );
+	OUT.Color = Texture * Tint;
 	return OUT;
 }
 
@@ -94,7 +94,7 @@ technique Translucent
 		CullMode	= CCW;
 		SrcBlend	= SrcAlpha;
 		DestBlend	= One;
-		GAMMA_CORRECT_WRITE;
+		sRGBWriteEnable = TRUE;
 
 		VertexShader = compile vs_3_0 Translucent_VS();
 		PixelShader = compile ps_3_0 Translucent_PS();

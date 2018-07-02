@@ -27,15 +27,15 @@ struct PSData_Translucent
 PSData_Translucent Translucent_VS(DrawPrimVertex IN)
 {
 	PSData_Translucent OUT;
-	OUT.Position			= mul( mDrawPrimToClip, float4( IN.Position, 1.0f ) );
-	OUT.DiffuseTexCoord	= IN.TexCoord;
-	OUT.Color			= IN.Color;
+	OUT.Position			= mul(mDrawPrimToClip, float4(IN.Position, 1.0f));
+	OUT.DiffuseTexCoord		= IN.TexCoord;
+	OUT.Color				= IN.Color;
 	return OUT;
 }
 
 float4 Translucent_PS(PSData_Translucent IN) : COLOR
 {
-	return LinearizeAlpha( tex2D( sDrawPrimTextureWrap, IN.DiffuseTexCoord ) * IN.Color );
+	return tex2D(sDrawPrimTextureWrap, IN.DiffuseTexCoord) * IN.Color;
 }
 
 //----------------------------------------------------------------------------
@@ -46,11 +46,11 @@ technique Translucent
 	{
 		AlphaBlendEnable	= true;
 		SrcBlend			= SrcAlpha;
-		DestBlend		= InvSrcAlpha;
-		GAMMA_CORRECT_WRITE;
+		DestBlend			= InvSrcAlpha;
+		sRGBWriteEnable		= TRUE;
 
 		VertexShader		= compile vs_3_0 Translucent_VS();
-		PixelShader		= compile ps_3_0 Translucent_PS();
+		PixelShader			= compile ps_3_0 Translucent_PS();
 	}
 }
 

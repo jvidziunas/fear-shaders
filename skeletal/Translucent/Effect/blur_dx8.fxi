@@ -1,0 +1,2 @@
+#define SKELETAL_MATERIAL
+#include "..\..\..\Rigid\Translucent\Effect\blur_DX8.fxi"

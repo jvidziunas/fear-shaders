@@ -1,0 +1,859 @@
+#include "..\..\sdk\basedefs.fxh"
+#include "..\..\sdk\skeletal.fxh"
+#include "..\..\sdk\transforms.fxh"
+#include "..\..\sdk\dx9lights.fxh"
+#include "..\..\sdk\screencoords.fxh"
+#include "..\..\sdk\depthencode.fxh"
+#include "..\..\sdk\texnormalize.fxh"
+#include "..\..\sdk\DX8Utilities.fxh"
+
+//--------------------------------------------------------------------
+// Input/output formats
+
+// Represents a single input vertex that will be fed into each vertex shader
+struct MaterialVertex
+{
+    float3	Position	: POSITION;
+    float3	Normal		: NORMAL; 
+    float2	TexCoord	: TEXCOORD0;
+	float3	Tangent		: TANGENT;
+	float3	Binormal	: BINORMAL;
+
+	DECLARE_SKELETAL_WEIGHTS
+};
+DECLARE_VERTEX_FORMAT(MaterialVertex);
+DECLARE_DESCRIPTION("This is a specular material with an environment map. This behaves exactly like the standard specular material except for an additional environment map, which is masked out by an environment map mask.");
+DECLARE_DOCUMENATION("Shaders\\Docs\\specular_env\\main.htm");
+
+//--------------------------------------------------------------------
+// Material parameters
+
+MIPARAM_SURFACEFLAGS;
+// The specular power range of the material
+MIPARAM_FLOAT(fMaxSpecularPower, 64, "Maximum specular power. This scales the gloss map so that bright white is the specified power");
+// the textures exported for the user
+MIPARAM_TEXTURE(tDiffuseMap, 0, 0, "", true, "Diffuse map of the material. This represents the color of the light reflected");
+MIPARAM_TEXTURE(tEmissiveMap, 0, 1, "", false, "Emissive map of the material. This represents the color of light emitted from the surface");
+MIPARAM_TEXTURE(tSpecularMap, 0, 2, "", false, "Specular map of the material. This represents the color of light bounced off the surface");
+MIPARAM_TEXTURE(tNormalMap, 0, 3, "", false, "Normal map of the material. This represents the normal of each point on the surface");
+MIPARAM_TEXTURE(tReflectionMap, 0, 5, "", false, "Reflection map parameter. Set the material parameter for the render target to this parameter.");
+MIPARAM_TEXTURE(tReflectionMapMask, 0, 4, "", false, "Masking map for the reflection map.  The blending value is in the alpha channel.  A discoloration value is in the color channel.");
+MIPARAM_FLOAT(fReflectionBumpScale, 0.1, "The amount the reflection map will be distorted by the bump map.");
+
+//the samplers for those textures
+SAMPLER_WRAP(sDiffuseMapSampler, tDiffuseMap);
+SAMPLER_WRAP(sEmissiveMapSampler, tEmissiveMap);
+SAMPLER_WRAP(sSpecularMapSampler, tSpecularMap);
+// Note : Normal maps should have at least trilinear filtering
+sampler sNormalMapSampler = sampler_state
+{
+	texture = <tNormalMap>;
+	AddressU = Wrap;
+	AddressV = Wrap;
+	MipFilter = Linear;
+};
+SAMPLER_CLAMP(sReflectionMapSampler, tReflectionMap);
+SAMPLER_WRAP_LINEAR(sReflectionMapMaskSampler, tReflectionMapMask);
+
+//--------------------------------------------------------------------
+// Utility functions
+
+float3x3 GetInverseTangentSpace(MaterialVertex Vert)
+{
+	return GetInverseTangentSpace(	SKIN_VECTOR(Vert.Tangent, Vert), 
+									SKIN_VECTOR(Vert.Binormal, Vert), 
+									SKIN_VECTOR(Vert.Normal, Vert));
+}
+
+float3x3 GetTangentSpace(MaterialVertex Vert)
+{
+	return transpose(GetInverseTangentSpace(Vert));
+}
+
+float3 GetPosition(MaterialVertex Vert)
+{
+	return SKIN_POINT(Vert.Position, Vert);
+}
+
+// Fetch the surface normal at a texture coordinate
+float3 GetSurfaceNormal(float2 vCoord)
+{
+	return ColorToUnitVector(tex2D(sNormalMapSampler, vCoord).xyz);
+}
+
+float3 GetSurfaceNormal_Unit(float2 vCoord)
+{
+	return normalize(GetSurfaceNormal(vCoord));
+}
+
+// Fetch the material specular color at a texture coordinate
+float4 GetMaterialSpecular(float2 vCoord)
+{
+	return tex2D(sSpecularMapSampler, vCoord);
+}
+
+// Fetch the material emissive color at a texture coordinate
+float4 GetMaterialEmissive(float2 vCoord)
+{
+	return tex2D(sEmissiveMapSampler, vCoord);
+}
+
+// Fetch the material emissive color at a texture coordinate
+float4 GetMaterialMirrorMask(float2 vCoord)
+{
+	return tex2D(sReflectionMapMaskSampler, vCoord);
+}
+
+float4 GetMaterialDiffuse(float2 vCoord)
+{
+	return tex2D(sDiffuseMapSampler, vCoord);
+}
+
+// Fetch the material diffuse color at a texture coordinate
+float4 GetMirroredDiffuse(float2 vCoord, float2 vMaskCoord, float2 vScreenPos)
+{
+	float4 vDiffuse = GetLightDiffuseColor() * GetMaterialDiffuse(vCoord);
+	float4 vReflection = tex2D(sReflectionMapSampler, vScreenPos);
+	float4 vMask = GetMaterialMirrorMask(vMaskCoord);
+
+	return lerp(vDiffuse, vReflection * vMask, vMask.w);
+}
+
+//////////////////////////////////////////////////////////////////////////////
+// Ambient
+//////////////////////////////////////////////////////////////////////////////
+
+struct PSData_Ambient 
+{
+	float4 Position		: POSITION;
+	float2 TexCoord		: TEXCOORD0;
+	float4 ScreenCoord	: TEXCOORD1;
+	float2 EmTexCoord	: TEXCOORD2;
+	float2 MaskCoord	: TEXCOORD3;
+};
+
+PSData_Ambient Ambient_VS(MaterialVertex IN)
+{
+	PSData_Ambient OUT;
+	OUT.Position = TransformToClipSpace(GetPosition(IN));
+	OUT.TexCoord = IN.TexCoord;
+	OUT.EmTexCoord = IN.TexCoord;
+	OUT.MaskCoord = IN.TexCoord;
+
+	OUT.ScreenCoord = GetScreenTexCoords(OUT.Position);
+	OUT.ScreenCoord.x = OUT.ScreenCoord.w - OUT.ScreenCoord.x;
+
+	return OUT;
+}
+
+float4 Ambient_PS(PSData_Ambient IN) : COLOR
+{
+	float4 vResult = float4(0,0,0,1);
+
+	float4 vDiffuseColor = GetMirroredDiffuse(IN.TexCoord, IN.MaskCoord, IN.ScreenCoord.xy);
+	vResult.xyz = vDiffuseColor.xyz + GetLightDiffuseColor().xyz * GetMaterialEmissive(IN.EmTexCoord).xyz;
+	vResult.w = 1.0;
+	
+	return vResult;
+}
+
+technique Ambient
+{
+	pass Draw
+	{
+		VertexShader = compile vs_1_1 Ambient_VS();
+		PixelShader = compile ps_1_1 Ambient_PS();
+		TextureTransformFlags[1] = Projected;
+	}
+}
+
+//////////////////////////////////////////////////////////////////////////////
+// Point light
+//////////////////////////////////////////////////////////////////////////////
+
+//----------------------------------------------------------------------------
+// Point Light Pass 1: Diffuse
+struct PSData_Point_Diffuse 
+{
+	float4 Position			: POSITION;
+	float2 NormalMapCoord	: TEXCOORD0;
+	float3 LightVector		: TEXCOORD1;
+	float3 Distance			: TEXCOORD2;
+	float2 DiffuseMapCoord	: TEXCOORD3;
+};
+
+PSData_Point_Diffuse Point_Diffuse_VS(MaterialVertex IN)
+{
+	PSData_Point_Diffuse OUT;
+
+	float3 vPosition = GetPosition(IN);
+	OUT.Position = TransformToClipSpace(vPosition);
+
+	float3x3 mObjToTangent = GetInverseTangentSpace(IN);
+
+	float3 vLightOffset = (vObjectSpaceLightPos - vPosition);
+	OUT.LightVector.xyz = mul(mObjToTangent, vLightOffset); // Normalized in the pixel shader
+
+	OUT.Distance		= UnitVectorToColor(fInvLightRadius * vLightOffset);
+	OUT.NormalMapCoord	= IN.TexCoord;
+	OUT.DiffuseMapCoord	= IN.TexCoord;
+
+	return OUT;
+}
+
+// Note : The ordering of this function is important to the optimizer.  It should fit in 4 instructions.
+float4 Point_Diffuse_PS(PSData_Point_Diffuse IN) : COLOR
+{
+	float4 vResult = float4(0,0,0,1);
+
+	float3 vDiffuse				= GetMaterialDiffuse(IN.DiffuseMapCoord).xyz;
+	
+	// Angular attenuation
+	float3 vNormal				= GetSurfaceNormal(IN.NormalMapCoord);
+	float3 vLightVector			= TexNormalizeVector(IN.LightVector);
+	float fAngularAttenuation	= saturate(dot(vLightVector, vNormal));
+	vResult.xyz = DX8GetLightDiffuseColor().xyz * vDiffuse * fAngularAttenuation;
+
+	// Distance attenuation
+	float fDistanceAttenuation	= CalcDistanceAttenuation(ColorToUnitVector(IN.Distance));
+	vResult.xyz *= fDistanceAttenuation;
+
+	return vResult;
+}
+
+//----------------------------------------------------------------------------
+// Point Light Pass 2: Specular
+struct PSData_Point_Specular 
+{
+	float4 Position			: POSITION;
+	float2 SpecularMapCoord : TEXCOORD0;
+	float2 NormalMapCoord	: TEXCOORD1;
+	float3 Distance			: TEXCOORD2;
+	float3 HalfVector		: TEXCOORD3;
+};
+
+PSData_Point_Specular Point_Specular_VS(MaterialVertex IN)
+{
+	PSData_Point_Specular OUT;
+
+	float3 vPosition = GetPosition(IN);
+	OUT.Position = TransformToClipSpace(vPosition);
+
+	OUT.SpecularMapCoord = IN.TexCoord;
+	OUT.NormalMapCoord = IN.TexCoord;
+
+	float3x3 mObjToTangent = GetInverseTangentSpace(IN);
+
+	float3 vLightOffset = vObjectSpaceLightPos - vPosition;
+	float3 vEyeOffset = vObjectSpaceEyePos - vPosition;
+	OUT.HalfVector	= DX8GetHalfAngle(vLightOffset, vEyeOffset, mObjToTangent);
+	OUT.Distance	= UnitVectorToColor(fInvLightRadius * vLightOffset);
+
+	return OUT;
+}
+
+
+float4 Point_Specular_PS(PSData_Point_Specular IN) : COLOR
+{
+	float4 vResult = float4(0,0,0,1);
+
+	// Get the specular color
+	vResult.xyz = DX8CalcSpecular(
+					GetSurfaceNormal(IN.NormalMapCoord), 
+					GetMaterialSpecular(IN.SpecularMapCoord), 
+					GetLightSpecularColor(), 
+					IN.HalfVector);
+		
+	// Distance attenuation
+	float fDistanceAttenuation	= CalcDistanceAttenuation(ColorToUnitVector(IN.Distance));
+	vResult.xyz *= fDistanceAttenuation;
+
+	return vResult;
+}
+
+//----------------------------------------------------------------------------
+// Point Light Technique
+technique Point
+{
+	pass Diffuse 
+	{
+		VertexShader = compile vs_1_1 Point_Diffuse_VS();
+		PixelShader = compile ps_1_1 Point_Diffuse_PS();
+	}
+	//*
+	pass Specular
+	{		
+		VertexShader = compile vs_1_1 Point_Specular_VS();
+		PixelShader = compile ps_1_1 Point_Specular_PS();
+	}
+	//*/
+}
+
+//////////////////////////////////////////////////////////////////////////////
+// Point Fill light
+//////////////////////////////////////////////////////////////////////////////
+
+PSData_Point_Diffuse PointFill_VS(MaterialVertex IN, uniform int index)
+{
+	PSData_Point_Diffuse OUT;
+
+	float3 vPosition = GetPosition(IN);
+	OUT.Position = TransformToClipSpace(vPosition);
+
+	float3x3 mObjToTangent = GetInverseTangentSpace(IN);
+
+	float3 vLightOffset = (vObjectSpaceFillLightPos[index] - vPosition);
+	OUT.LightVector.xyz = mul(mObjToTangent, vLightOffset); // Normalized in the pixel shader
+
+	OUT.Distance		= UnitVectorToColor(fInvFillLightRadius[index] * vLightOffset);
+	OUT.NormalMapCoord	= IN.TexCoord;
+	OUT.DiffuseMapCoord	= IN.TexCoord;
+
+	return OUT;
+}
+
+float4 PointFill_PS(PSData_Point_Diffuse IN, uniform int index) : COLOR
+{
+	float4 vResult;
+
+	float3 vDiffuse				= GetMaterialDiffuse(IN.DiffuseMapCoord).xyz;
+	
+	// Angular attenuation
+	float3 vNormal				= GetSurfaceNormal(IN.NormalMapCoord);
+	float3 vLightVector			= TexNormalizeVector(IN.LightVector);
+	float fAngularAttenuation	= saturate(dot(vLightVector, vNormal));
+	vResult.xyz = DX8GetPointFillLightDiffuseColor(index).xyz * vDiffuse * fAngularAttenuation;
+
+	// Distance attenuation
+	float fDistanceAttenuation	= CalcDistanceAttenuation(ColorToUnitVector(IN.Distance));
+	vResult.w = fDistanceAttenuation;
+
+	return vResult;
+}
+
+technique PointFill
+{
+	pass Draw0
+	{		
+		VertexShader = compile vs_1_1 PointFill_VS(0);
+		PixelShader = compile ps_1_1 PointFill_PS(0);
+	}
+	pass Draw1
+	{		
+		VertexShader = compile vs_1_1 PointFill_VS(1);
+		PixelShader = compile ps_1_1 PointFill_PS(1);
+	}
+	pass Draw2
+	{		
+		VertexShader = compile vs_1_1 PointFill_VS(2);
+		PixelShader = compile ps_1_1 PointFill_PS(2);
+	}
+}
+
+//////////////////////////////////////////////////////////////////////////////
+// Spot projector
+//////////////////////////////////////////////////////////////////////////////
+
+//----------------------------------------------------------------------------
+// Spot projector Pass 1: Distance & clipping planes
+
+struct PSData_SpotProjector_Distance
+{
+	float4 Position : POSITION;
+	float3 Distance : TEXCOORD0;
+	float2 ClipPlanes : TEXCOORD1;
+};
+
+PSData_SpotProjector_Distance SpotProjector_Distance_VS(MaterialVertex IN)
+{
+	PSData_SpotProjector_Distance OUT;
+
+	float3 vPosition = GetPosition(IN);
+	OUT.Position = TransformToClipSpace(vPosition);
+	OUT.Distance = UnitVectorToColor(fInvLightRadius * (vObjectSpaceLightPos - vPosition));
+
+	// Near/far plane clipping
+	OUT.ClipPlanes = GetSpotProjectorClipInterpolants(vPosition);
+
+	return OUT;
+}
+
+float4 SpotProjector_Distance_PS(PSData_SpotProjector_Distance IN) : COLOR
+{
+	float4 vResult;
+
+	// Color is ignored in this pass
+	vResult.xyz = 0;
+
+	// Start with distance attenuation
+	vResult.w = CalcDistanceAttenuation(ColorToUnitVector(IN.Distance));
+	// Perform near/far plane clipping
+	vResult.w *= GetClipResult(IN.ClipPlanes);
+
+	return vResult;
+}
+
+//----------------------------------------------------------------------------
+// Spot projector Pass 2: Diffuse
+struct PSData_SpotProjector_Diffuse 
+{
+	float4 Position			: POSITION;
+	float2 NormalMapCoord	: TEXCOORD0;
+	float3 LightVector		: TEXCOORD1;
+	float2 DiffuseMapCoord	: TEXCOORD2;
+	// Note: Must match texture projection flags texture coord entry
+	float4 LightMapCoord	: TEXCOORD3;
+};
+
+PSData_SpotProjector_Diffuse SpotProjector_Diffuse_VS(MaterialVertex IN)
+{
+	PSData_SpotProjector_Diffuse OUT;
+
+	float3 vPosition = GetPosition(IN);
+	OUT.Position = TransformToClipSpace(vPosition);
+
+	float3x3 mObjToTangent = GetInverseTangentSpace(IN);
+
+	float3 vLightOffset = (vObjectSpaceLightPos - vPosition.xyz);
+	OUT.LightVector.xyz = mul(mObjToTangent, vLightOffset); // Normalized in the pixel shader
+
+	OUT.NormalMapCoord	= IN.TexCoord;
+	OUT.DiffuseMapCoord	= IN.TexCoord;
+	OUT.LightMapCoord = GetSpotProjectorTexCoord(vPosition);
+	OUT.LightMapCoord.z = OUT.LightMapCoord.w;
+
+	return OUT;
+}
+
+// Note : The ordering of this function is important to the optimizer.  It should fit in 4 instructions.
+float4 SpotProjector_Diffuse_PS(PSData_SpotProjector_Diffuse IN) : COLOR
+{
+	float4 vResult;
+
+	float3 vDiffuse	= GetMaterialDiffuse(IN.DiffuseMapCoord).xyz;
+	
+	// Angular attenuation
+	float3 vNormal				= GetSurfaceNormal(IN.NormalMapCoord);
+	float3 vLightVector			= TexNormalizeVector(IN.LightVector);
+	float fAngularAttenuation	= saturate(dot(vLightVector, vNormal));
+	vResult.xyz = DX8GetSpotProjectorDiffuseColor(IN.LightMapCoord) * vDiffuse * fAngularAttenuation;
+	// Ignored due to dest-alpha blend
+	vResult.w = 1.0;
+
+	return vResult;
+}
+
+//----------------------------------------------------------------------------
+// Spot Projector Pass 2: Specular
+struct PSData_SpotProjector_Specular 
+{
+	float4 Position			: POSITION;
+	float2 SpecularMapCoord : TEXCOORD0;
+	float2 NormalMapCoord	: TEXCOORD1;
+	// Note: Must match texture projection flags texture coord entry
+	float4 LightMapCoord	: TEXCOORD2;
+	float3 HalfVector		: TEXCOORD3;
+};
+
+PSData_SpotProjector_Specular SpotProjector_Specular_VS(MaterialVertex IN)
+{
+	PSData_SpotProjector_Specular OUT;
+
+	float3 vPosition = GetPosition(IN);
+	OUT.Position = TransformToClipSpace(vPosition);
+
+	OUT.SpecularMapCoord = IN.TexCoord;
+	OUT.NormalMapCoord = IN.TexCoord;
+
+	float3x3 mObjToTangent = GetInverseTangentSpace(IN);
+
+	OUT.HalfVector	= DX8GetHalfAngle(vObjectSpaceLightPos - vPosition, vObjectSpaceEyePos - vPosition, mObjToTangent);
+	OUT.LightMapCoord = GetSpotProjectorTexCoord(vPosition);
+
+	return OUT;
+}
+
+float4 SpotProjector_Specular_PS(PSData_SpotProjector_Specular IN) : COLOR
+{
+	float4 vResult;
+
+	// Get the specular color
+	vResult.xyz = DX8CalcSpecular(
+					GetSurfaceNormal(IN.NormalMapCoord), 
+					GetMaterialSpecular(IN.SpecularMapCoord), 
+					DX8GetSpotProjectorSpecularColor(IN.LightMapCoord), 
+					IN.HalfVector);
+
+	// Ignored due to dest-alpha blend
+	vResult.w = 1.0;
+
+	return vResult;
+}
+
+//----------------------------------------------------------------------------
+// Spot Projector Technique: 
+technique SpotProjector
+{
+	pass Distance
+	{
+		ColorWriteEnable = Alpha;
+		SrcBlend = One;
+		DestBlend = Zero;
+		
+		VertexShader = compile vs_1_1 SpotProjector_Distance_VS();
+		PixelShader = compile ps_1_1 SpotProjector_Distance_PS();
+	}
+	//*
+	pass Diffuse
+	{
+		ColorWriteEnable = Red|Green|Blue;
+		SrcBlend = DestAlpha;
+		DestBlend = One;
+		VertexShader = compile vs_1_1 SpotProjector_Diffuse_VS();
+		PixelShader = compile ps_1_1 SpotProjector_Diffuse_PS();
+		TextureTransformFlags[3] = Projected;
+	}
+	//*
+	pass Specular
+	{
+		ColorWriteEnable = Red|Green|Blue;
+		SrcBlend = DestAlpha;
+		DestBlend = One;
+		VertexShader = compile vs_1_1 SpotProjector_Specular_VS();
+		PixelShader = compile ps_1_1 SpotProjector_Specular_PS();
+		TextureTransformFlags[2] = Projected;
+	}
+	//*/
+}
+
+//////////////////////////////////////////////////////////////////////////////
+// Cube projector
+//////////////////////////////////////////////////////////////////////////////
+
+//----------------------------------------------------------------------------
+// Cube projector Pass 1: Distance
+
+struct PSData_CubeProjector_Distance
+{
+	float4 Position : POSITION;
+	float3 Distance : TEXCOORD0;
+};
+
+PSData_CubeProjector_Distance CubeProjector_Distance_VS(MaterialVertex IN)
+{
+	PSData_CubeProjector_Distance OUT;
+
+	float3 vPosition = GetPosition(IN);
+	OUT.Position = TransformToClipSpace(vPosition);
+	OUT.Distance = UnitVectorToColor(fInvLightRadius * (vObjectSpaceLightPos - vPosition));
+
+	return OUT;
+}
+
+float4 CubeProjector_Distance_PS(PSData_CubeProjector_Distance IN) : COLOR
+{
+	float4 vResult;
+
+	// Color is ignored in this pass
+	vResult.xyz = 0;
+	// Distance attenuation goes in alpha
+	vResult.w = CalcDistanceAttenuation(ColorToUnitVector(IN.Distance));
+
+	return vResult;
+}
+
+//----------------------------------------------------------------------------
+// Cube projector Pass 2: Diffuse
+struct PSData_CubeProjector_Diffuse 
+{
+	float4 Position			: POSITION;
+	float2 NormalMapCoord	: TEXCOORD0;
+	float3 LightVector		: TEXCOORD1;
+	float2 DiffuseMapCoord	: TEXCOORD2;
+	float3 LightMapCoord	: TEXCOORD3;
+};
+
+PSData_CubeProjector_Diffuse CubeProjector_Diffuse_VS(MaterialVertex IN)
+{
+	PSData_CubeProjector_Diffuse OUT;
+
+	float3 vPosition = GetPosition(IN);
+	OUT.Position = TransformToClipSpace(vPosition);
+
+	float3x3 mObjToTangent = GetInverseTangentSpace(IN);
+
+	float3 vLightOffset = (vObjectSpaceLightPos - vPosition.xyz);
+	OUT.LightVector.xyz = mul(mObjToTangent, vLightOffset); // Normalized in the pixel shader
+
+	OUT.NormalMapCoord	= IN.TexCoord;
+	OUT.DiffuseMapCoord	= IN.TexCoord;
+	OUT.LightMapCoord = GetCubeProjectorTexCoord(vPosition);
+
+	return OUT;
+}
+
+// Note : The ordering of this function is important to the optimizer.  It should fit in 4 instructions.
+float4 CubeProjector_Diffuse_PS(PSData_CubeProjector_Diffuse IN) : COLOR
+{
+	float4 vResult;
+
+	float3 vDiffuse	= GetMaterialDiffuse(IN.DiffuseMapCoord).xyz;
+	
+	// Angular attenuation
+	float3 vNormal				= GetSurfaceNormal(IN.NormalMapCoord);
+	float3 vLightVector			= TexNormalizeVector(IN.LightVector);
+	float fAngularAttenuation	= saturate(dot(vLightVector, vNormal));
+	vResult.xyz = DX8GetCubeProjectorDiffuseColor(IN.LightMapCoord) * vDiffuse * fAngularAttenuation;
+
+	// Ignored due to dest-alpha blend
+	vResult.w = 1.0;
+
+	return vResult;
+}
+
+//----------------------------------------------------------------------------
+// Cube Projector Pass 3: Specular
+struct PSData_CubeProjector_Specular 
+{
+	float4 Position			: POSITION;
+	float2 SpecularMapCoord : TEXCOORD0;
+	float2 NormalMapCoord	: TEXCOORD1;
+	float3 LightMapCoord	: TEXCOORD2;
+	float3 HalfVector		: TEXCOORD3;
+};
+
+PSData_CubeProjector_Specular CubeProjector_Specular_VS(MaterialVertex IN)
+{
+	PSData_CubeProjector_Specular OUT;
+
+	float3 vPosition = GetPosition(IN);
+	OUT.Position = TransformToClipSpace(vPosition);
+
+	OUT.SpecularMapCoord = IN.TexCoord;
+	OUT.NormalMapCoord = IN.TexCoord;
+
+	float3x3 mObjToTangent = GetInverseTangentSpace(IN);
+
+	OUT.HalfVector	= DX8GetHalfAngle(vObjectSpaceLightPos - vPosition, vObjectSpaceEyePos - vPosition, mObjToTangent);
+	OUT.LightMapCoord = GetCubeProjectorTexCoord(vPosition);
+
+	return OUT;
+}
+
+float4 CubeProjector_Specular_PS(PSData_CubeProjector_Specular IN) : COLOR
+{
+	float4 vResult;
+
+	// Get the specular color
+	vResult.xyz = DX8CalcSpecular(
+					GetSurfaceNormal(IN.NormalMapCoord), 
+					GetMaterialSpecular(IN.SpecularMapCoord), 
+					DX8GetCubeProjectorSpecularColor(IN.LightMapCoord), 
+					IN.HalfVector);
+		
+	// Ignored due to dest-alpha blend
+	vResult.w = 1.0;
+
+	return vResult;
+}
+
+//----------------------------------------------------------------------------
+// Cube Projector Technique: 
+technique CubeProjector
+{
+	pass Distance
+	{
+		ColorWriteEnable = Alpha;
+		SrcBlend = One;
+		DestBlend = Zero;
+		VertexShader = compile vs_1_1 CubeProjector_Distance_VS();
+		PixelShader = compile ps_1_1 CubeProjector_Distance_PS();
+	}
+	pass Diffuse
+	{
+		ColorWriteEnable = Red|Green|Blue;
+		SrcBlend = DestAlpha;
+		DestBlend = One;
+		VertexShader = compile vs_1_1 CubeProjector_Diffuse_VS();
+		PixelShader = compile ps_1_1 CubeProjector_Diffuse_PS();
+	}
+	//*
+	pass Specular
+	{
+		ColorWriteEnable = Red|Green|Blue;
+		SrcBlend = DestAlpha;
+		DestBlend = One;
+		VertexShader = compile vs_1_1 CubeProjector_Specular_VS();
+		PixelShader = compile ps_1_1 CubeProjector_Specular_PS();
+	}
+	//*/
+}
+
+//////////////////////////////////////////////////////////////////////////////
+// Directional
+//////////////////////////////////////////////////////////////////////////////
+
+//----------------------------------------------------------------------------
+// Directional light Pass 1: Clip
+struct PSData_Directional_Clip
+{
+	float4 Position			: POSITION;
+	float2 TexSpaceXY		: TEXCOORD0;
+	float2 TexSpaceZ		: TEXCOORD1;
+	float2 AttenuationCoord : TEXCOORD2;
+};
+
+PSData_Directional_Clip Directional_Clip_VS(MaterialVertex IN)
+{
+	PSData_Directional_Clip OUT;
+
+	float3 vPosition = GetPosition(IN);
+	OUT.Position = TransformToClipSpace(vPosition);
+
+	// Calculate the position in the clip and texture spaces
+	float3 vLightMapCoord = mul(mDirectional_ObjectToTex, float4(vPosition, 1.0)).xyz;
+	OUT.TexSpaceXY = vLightMapCoord.xy * 0.5 + float2(0.25, 0.25);
+	OUT.TexSpaceZ = float2(vLightMapCoord.z * 0.5 + 0.25, 0.5);
+	OUT.AttenuationCoord = float2(vLightMapCoord.z, 0.0);
+	return OUT;
+}
+
+float4 Directional_Clip_PS(PSData_Directional_Clip IN) : COLOR
+{
+	float fDistanceAttenuation	= dot(tex2D(sDirectional_AttenuationSampler, IN.AttenuationCoord).xyz, float3(0.3, 0.4, 0.3));
+	
+	float vClipXY = tex2D(sDirectional_ClipMapSampler, IN.TexSpaceXY).w;
+	float vClipZ = tex2D(sDirectional_ClipMapSampler, IN.TexSpaceZ).w;
+	return vClipXY * vClipZ * fDistanceAttenuation;
+}
+
+//----------------------------------------------------------------------------
+// Directional light Pass 2: Diffuse
+struct PSData_Directional_Diffuse
+{
+	float4 Position			: POSITION;
+	float2 NormalMapCoord	: TEXCOORD0;
+	float2 DiffuseMapCoord	: TEXCOORD1;
+	float2 LightMapCoord	: TEXCOORD2;
+	float3 LightVector		: COLOR0;
+};
+
+PSData_Directional_Diffuse Directional_Diffuse_VS(MaterialVertex IN)
+{
+	PSData_Directional_Diffuse OUT;
+
+	float3 vPosition = GetPosition(IN);
+	OUT.Position = TransformToClipSpace(vPosition);
+
+	float3x3 mObjToTangent = GetInverseTangentSpace(IN);
+
+	OUT.LightVector.xyz = UnitVectorToColor(mul(mObjToTangent, -vDirectional_Dir)); // Normalized in the pixel shader
+
+	OUT.NormalMapCoord	= IN.TexCoord;
+	OUT.DiffuseMapCoord	= IN.TexCoord;
+	// Calculate the position in the clip and texture spaces
+	float3 vLightMapCoord = mul(mDirectional_ObjectToTex, float4(vPosition, 1.0)).xyz;
+	OUT.LightMapCoord	 = vLightMapCoord.xy;
+
+	return OUT;
+}
+
+float4 Directional_Diffuse_PS(PSData_Directional_Diffuse IN) : COLOR
+{
+	float4 vResult;
+
+	float3 vDiffuse	= GetMaterialDiffuse(IN.DiffuseMapCoord).xyz;
+	
+	// Angular attenuation
+	float3 vNormal				= GetSurfaceNormal(IN.NormalMapCoord);
+	float3 vLightVector			= ApproximateNormalizeColorVector(IN.LightVector);
+	float fAngularAttenuation	= saturate(dot(vLightVector, vNormal));
+	
+	vResult.xyz = DX8GetDirectionalLightDiffuseColor(IN.LightMapCoord) * vDiffuse * fAngularAttenuation;
+
+	// Ignored due to dest-alpha blend
+	vResult.w = 1.0;
+
+	return vResult;
+}
+
+//----------------------------------------------------------------------------
+// Directional light Pass 3: Specular
+struct PSData_Directional_Specular
+{
+	float4 Position			: POSITION;
+	float2 SpecularMapCoord : TEXCOORD0;
+	float2 NormalMapCoord	: TEXCOORD1;
+	float2 LightMapCoord	: TEXCOORD2;
+	float3 HalfVector		: TEXCOORD3;
+};
+
+PSData_Directional_Specular Directional_Specular_VS(MaterialVertex IN)
+{
+	PSData_Directional_Specular OUT;
+
+	float3 vPosition = GetPosition(IN);
+	OUT.Position = TransformToClipSpace(vPosition);
+
+	OUT.SpecularMapCoord = IN.TexCoord;
+	OUT.NormalMapCoord = IN.TexCoord;
+
+	float3x3 mObjToTangent = GetInverseTangentSpace(IN);
+
+	OUT.HalfVector	= DX8GetHalfAngle(-vDirectional_Dir, vObjectSpaceEyePos - vPosition, mObjToTangent);
+	float3 vLightMapCoord = mul(mDirectional_ObjectToTex, float4(vPosition, 1.0)).xyz;
+	OUT.LightMapCoord	 = vLightMapCoord.xy;
+
+	return OUT;
+}
+
+float4 Directional_Specular_PS(PSData_Directional_Specular IN) : COLOR
+{
+	float4 vResult;
+
+	// Get the specular color
+	vResult.xyz = DX8CalcSpecular(
+					GetSurfaceNormal(IN.NormalMapCoord), 
+					GetMaterialSpecular(IN.SpecularMapCoord), 
+					DX8GetDirectionalLightSpecularColor(IN.LightMapCoord), 
+					IN.HalfVector);
+		
+	// Ignored due to dest-alpha blend
+	vResult.w = 1.0;
+
+	return vResult;
+}
+
+//----------------------------------------------------------------------------
+// Directional Technique
+technique Directional
+{
+	pass Clip
+	{	
+		ColorWriteEnable = Alpha;
+		SrcBlend = One;
+		DestBlend = Zero;
+		
+		VertexShader = compile vs_1_1 Directional_Clip_VS();
+		PixelShader = compile ps_1_1 Directional_Clip_PS();
+	}
+	pass Diffuse
+	{	
+		ColorWriteEnable = Red|Green|Blue;
+		SrcBlend = DestAlpha;
+		DestBlend = One;
+		VertexShader = compile vs_1_1 Directional_Diffuse_VS();
+		PixelShader = compile ps_1_1 Directional_Diffuse_PS();
+	}
+	pass Specular
+	{	
+		ColorWriteEnable = Red|Green|Blue;
+		SrcBlend = DestAlpha;
+		DestBlend = One;
+		VertexShader = compile vs_1_1 Directional_Specular_VS();
+		PixelShader = compile ps_1_1 Directional_Specular_PS();
+	}
+}
+
+// Depth encoding support
+ENCODE_DEPTH_DX8(MaterialVertex)

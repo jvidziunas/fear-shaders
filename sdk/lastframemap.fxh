@@ -5,6 +5,6 @@
 
 // the previous rendered frame
 shared texture tLastFrameMap;
-SAMPLER_CLAMP_sRGB(sLastFrameMapSampler, tLastFrameMap);
+SAMPLER_CLAMP(sLastFrameMapSampler, tLastFrameMap);
 
 #endif

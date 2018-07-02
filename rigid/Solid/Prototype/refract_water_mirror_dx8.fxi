@@ -1,0 +1,225 @@
+#include "..\..\..\sdk\basedefs.fxh"
+#include "..\..\..\sdk\skeletal.fxh"
+#include "..\..\..\sdk\screencoords.fxh"
+#include "..\..\..\sdk\transforms.fxh"
+#include "..\..\..\sdk\texnormalize.fxh"
+
+//--------------------------------------------------------------------
+// Input/output formats
+
+// Represents a single input vertex that will be fed into each vertex shader
+struct MaterialVertex
+{
+    float3	Position	: POSITION;
+    float3	Normal		: NORMAL; 
+    float2	TexCoord	: TEXCOORD0;
+	float3	Tangent		: TANGENT;
+	float3	Binormal	: BINORMAL;
+
+	DECLARE_SKELETAL_WEIGHTS
+};
+DECLARE_VERTEX_FORMAT(MaterialVertex);
+DECLARE_DESCRIPTION("Water shader, based on refract_water, for use with mirror render targets.");
+DECLARE_DOCUMENATION("Shaders\\Docs\\refract_water\\main.htm");
+
+//--------------------------------------------------------------------
+// Material parameters
+
+MIPARAM_SURFACEFLAGS;
+// The specular power range of the material
+MIPARAM_FLOAT(fRefractScale, 0.03, "Refraction scale");
+// Maximum depth of the water
+MIPARAM_FLOAT(fWaterDepth, 20, "Water depth");
+// Index of refraction
+MIPARAM_FLOAT(fIndexOfRefraction, 0.75, "Index of refraction");
+// Offset scaling amount for reflections
+MIPARAM_FLOAT(fReflectScale, 0.2, "Reflection scale");
+// Reflection plane direction
+MIPARAM_VECTOR(vReflectionPlane, 0.0, 1.0, 0.0, "Reflection plane direction");
+
+// the textures exported for the user
+MIPARAM_TEXTURE(tDiffuseMap, 0, 0, "", true, "Diffuse map of the material. This represents the color of the light refracted");
+MIPARAM_TEXTURE(tReflectionMap, 0, 2, "", false, "Reflection map of the material. This should be set as the texture replaced with the mirror render target object.");
+MIPARAM_TEXTURE(tRefractionMap, 0, 3, "", false, "Refraction map of the material. This should be set as the texture replaced with the refraction render target object.");
+MIPARAM_TEXTURE(tFresnelTable, 0, 4, "", false, "Fresnel look-up table. This is used to determine the amount of reflection to apply based on the viewing angle.");
+
+//the samplers for those textures
+SAMPLER_WRAP(sDiffuseMapSampler, tDiffuseMap);
+//SAMPLER_CLAMP(sReflectionMapSampler, tReflectionMap);
+sampler sReflectionMapSampler = sampler_state
+{
+	texture = <tReflectionMap>;
+	AddressU = Clamp;
+	AddressV = Clamp;
+	MagFilter = Linear;
+	SRGBTexture = true;
+};
+sampler sRefractionMapSampler = sampler_state
+{
+	texture = <tRefractionMap>;
+	AddressU = Clamp;
+	AddressV = Clamp;
+	MagFilter = Linear;
+	SRGBTexture = true;
+};
+SAMPLER_CLAMP(sFresnelTableSampler, tFresnelTable);
+
+//--------------------------------------------------------------------
+// Utility functions
+
+float3x3 GetInverseTangentSpace(MaterialVertex Vert)
+{
+	return GetInverseTangentSpace(	SKIN_VECTOR(Vert.Tangent, Vert), 
+									SKIN_VECTOR(Vert.Binormal, Vert), 
+									SKIN_VECTOR(Vert.Normal, Vert));
+}
+
+float3 GetPosition(MaterialVertex Vert)
+{
+	return SKIN_POINT(Vert.Position, Vert);
+}
+
+// Fetch the material diffuse color at a texture coordinate
+float4 GetMaterialDiffuse(float2 vCoord)
+{
+	return tex2D(sDiffuseMapSampler, vCoord);
+}
+
+//////////////////////////////////////////////////////////////////////////////
+// Translucent
+//////////////////////////////////////////////////////////////////////////////
+
+struct PSData_Translucent 
+{
+	float4 Position : POSITION;
+	float2 TexCoord : TEXCOORD0;
+	float4 ScreenCoord : TEXCOORD1;
+};
+
+PSData_Translucent Translucent_VS(MaterialVertex IN)
+{
+	PSData_Translucent OUT;
+	OUT.Position = TransformToClipSpace(GetPosition(IN));
+	OUT.TexCoord = IN.TexCoord;
+	
+	float3 vEyePos = vObjectSpaceEyePos;
+	float3 vEyeVector = vEyePos - GetPosition(IN);
+	float3 vNormal = SKIN_VECTOR(IN.Normal, IN);
+	float3 vRefract = refract(normalize(vEyeVector), vNormal, fIndexOfRefraction);
+	
+	float3 vTransformedNormal = vRefract - normalize(vEyeVector);
+	
+	float fScale = 0.1f * fRefractScale;
+	float2 vOffset = vTransformedNormal.xy * float2(fScale, -fScale);
+
+	OUT.ScreenCoord = GetScreenTexCoords(OUT.Position);
+	OUT.ScreenCoord.xy += vOffset * OUT.ScreenCoord.w;
+
+	return OUT;
+}
+
+float4 Translucent_PS(PSData_Translucent IN) : COLOR
+{
+	float4 vResult = tex2D(sRefractionMapSampler, IN.ScreenCoord);
+	
+	vResult *= GetMaterialDiffuse(IN.TexCoord);
+	
+	return vResult;
+}
+
+struct PSData_Reflect
+{
+	float4 Position : POSITION;
+	float3 EyeVector : TEXCOORD0;
+	float3 Normal : TEXCOORD1;
+	float3 Dummy : TEXCOORD2;
+	float4 ScreenCoord : TEXCOORD3;
+};
+
+PSData_Reflect Reflect_VS(MaterialVertex IN)
+{
+	PSData_Reflect OUT;
+	OUT.Position = TransformToClipSpace(GetPosition(IN));
+	
+	float3 vEyePos = vObjectSpaceEyePos;
+	float3 vEyeVector = vEyePos - GetPosition(IN);
+	OUT.EyeVector = vEyeVector;
+	
+	float3 vNormal = SKIN_VECTOR(IN.Normal, IN);
+	float3 vTransformedNormal = vNormal - vReflectionPlane;
+	OUT.Normal = normalize(vNormal);
+	OUT.Dummy = OUT.Normal;
+	
+	float fScale = 0.1f * fRefractScale;
+	float2 vOffset = vTransformedNormal.xy * float2(fScale, -fScale);
+
+	OUT.ScreenCoord = GetScreenTexCoords(OUT.Position);
+	OUT.ScreenCoord.xy += vOffset * OUT.ScreenCoord.w;
+	OUT.ScreenCoord.x = OUT.ScreenCoord.w - OUT.ScreenCoord.x;
+
+	return OUT;
+}
+
+float4 Reflect_PS(PSData_Reflect IN) : COLOR
+{
+	float4 vResult = float4(0,0,0,1);
+
+	// Sample the reflection map
+	vResult.xyz = tex2D(sReflectionMapSampler, IN.ScreenCoord);
+
+	// Do a lookup in the fresnel table to calculate the reflection opacity
+	float3 vEye = TexNormalizeVector(IN.EyeVector);
+	float2 vCoord = float2(dot(vEye, IN.Normal), dot(vEye, IN.Dummy));
+	vResult.w = tex2D(sFresnelTableSampler, vCoord).w;
+	
+	return vResult;
+}
+
+pixelshader Reflect_PS_asm =
+asm {
+	ps_1_1
+	tex t0
+	texm3x2pad t1, t0_bx2
+	texm3x2tex t2, t0_bx2
+	tex t3
+	mov r0.xyz, t3
+	+mov r0.w, t2.w
+};
+
+technique FogVolume_Blend
+{
+	pass Draw
+	{
+		StencilEnable = False;
+		CullMode = CCW;
+		AlphaBlendEnable = False;
+		ZEnable = True;
+		ZFunc = LessEqual;
+		ZWriteEnable = False;
+		VertexShader = compile vs_1_1 Translucent_VS();
+		PixelShader = compile ps_1_1 Translucent_PS();
+		TextureTransformFlags[1] = Projected;
+	}
+	//*
+	pass Reflect
+	{
+		StencilEnable = False;
+		CullMode = CCW;
+		AlphaBlendEnable = True;
+		ZEnable = True;
+		ZFunc = LessEqual;
+		ZWriteEnable = False;
+		SrcBlend = SrcAlpha;
+		DestBlend = InvSrcAlpha;
+		VertexShader = compile vs_1_1 Reflect_VS();
+		PixelShader = //compile ps_1_1 Reflect_PS();
+					<Reflect_PS_asm>;
+		Sampler[0] = <sNormalizationMapSampler>;
+		Sampler[2] = <sFresnelTableSampler>;
+		Sampler[3] = <sReflectionMapSampler>;
+		TextureTransformFlags[1] = 0;
+		TextureTransformFlags[3] = Projected;
+	}
+	//*/
+}
+

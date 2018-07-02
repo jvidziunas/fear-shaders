@@ -13,9 +13,9 @@
 struct MaterialVertex
 {
     float3	Position	: POSITION;
-    float3	Normal	: NORMAL; 
+    float3	Normal		: NORMAL; 
     float2	TexCoord	: TEXCOORD0;
-	float3	Tangent	: TANGENT;
+	float3	Tangent		: TANGENT;
 	float3	Binormal	: BINORMAL;
 
 	DECLARE_SKELETAL_WEIGHTS
@@ -45,7 +45,8 @@ MIPARAM_FLOAT(fNoise2Amplitude, 1.0, "Noise octave #2 Amplitude.");
 MIPARAM_FLOAT(fNoise2Speed, 50.0, "Noise octave #2 Speed.");
 
 //the samplers for those textures
-SAMPLER_WRAP_sRGB(sDiffuseMapSampler, tDiffuseMap);
+SAMPLER_WRAP(sDiffuseMapSampler, tDiffuseMap);
+//SAMPLER_WRAP(sWaveMapSampler, tWaveMap);
 sampler sWaveMapSampler = sampler_state
 {
 	texture = <tWaveMap>;
@@ -64,8 +65,8 @@ sampler sNormalMapSampler = sampler_state
 	MagFilter = Linear;
 	MipFilter = Linear;
 };
-SAMPLER_CLAMP_sRGB(sReflectionMapSampler, tReflectionMap);
-SAMPLER_WRAP(sRoughnessMapSampler, tRoughnessMap);
+SAMPLER_CLAMP(sReflectionMapSampler, tReflectionMap);
+SAMPLER_WRAP_LINEAR(sRoughnessMapSampler, tRoughnessMap);
 
 //--------------------------------------------------------------------
 // Utility functions
@@ -73,8 +74,8 @@ SAMPLER_WRAP(sRoughnessMapSampler, tRoughnessMap);
 float3x3 GetInverseTangentSpace()
 {
 	return float3x3( float3(1,0,0),
-					float3(0,0,1),
-					float3(0,1,0) );
+					 float3(0,0,1),
+					 float3(0,1,0) );
 }
 
 float3 GetPosition(MaterialVertex Vert)
@@ -91,7 +92,7 @@ float2 GetSurfaceNormal_Offset(float2 vCoord, float fOffsetCoordScale, float fOf
 
 float3 GetSurfaceNormal_Unit(float2 vCoord)
 {
-	return NormalExpand(tex2D(sNormalMapSampler, vCoord).xyz);
+	return normalize(tex2D(sNormalMapSampler, vCoord).xyz - 0.5);
 }
 
 float4 GetMaterialDiffuse(float2 vCoord)
@@ -131,12 +132,12 @@ float4 GetMirror(float2 vScreenCoord)
 struct PSData_Ambient 
 {
 	float4 Position		: POSITION;
-	float2 TexCoord		: TEXCOORD0_centroid;
-	float2 NormalCoord	: TEXCOORD1_centroid;
-	float4 ScreenCoord	: TEXCOORD2_centroid;
-	float3 ObjEyeVector	: TEXCOORD3_centroid;
-	float3 Tangent0		: TEXCOORD4_centroid;
-	float3 Tangent1		: TEXCOORD5_centroid;
+	float2 TexCoord		: TEXCOORD0;
+	float2 NormalCoord	: TEXCOORD1;
+	float4 ScreenCoord	: TEXCOORD2;
+	float3 ObjEyeVector	: TEXCOORD3;
+	float3 Tangent0 : TEXCOORD4;
+	float3 Tangent1 : TEXCOORD5;
 };
 
 PSData_Ambient Ambient_VS(MaterialVertex IN)
@@ -198,8 +199,8 @@ technique Ambient
 {
 	pass Draw
 	{
-		GAMMA_CORRECT_WRITE;
-
+		sRGBWriteEnable = TRUE;
+		
 		VertexShader = compile vs_3_0 Ambient_VS();
 		PixelShader = compile ps_3_0 Ambient_PS();
 	}

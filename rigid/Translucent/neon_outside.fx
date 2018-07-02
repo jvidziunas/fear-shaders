@@ -40,9 +40,9 @@ MIPARAM_FLOAT(fGlowOverridePrevention, 0.25, "Amount of glow reduction based on 
 
 // the textures exported for the user
 MIPARAM_TEXTURE(tEmissiveMap, 0, 0, "", true, "Emissive map");
-SAMPLER_WRAP_sRGB(sEmissiveMapSampler, tEmissiveMap);
+SAMPLER_WRAP(sEmissiveMapSampler, tEmissiveMap);
 MIPARAM_TEXTURE(tGlowMap, 0, 1, "", false, "Glow map");
-SAMPLER_WRAP_sRGB(sGlowMapSampler, tGlowMap);
+SAMPLER_WRAP(sGlowMapSampler, tGlowMap);
 
 //--------------------------------------------------------------------
 // Utility functions
@@ -86,7 +86,7 @@ technique Ambient
 	{
 		CullMode = CW;
 		VertexShader = compile vs_3_0 Ambient_VS();
-		// Black fill so we don't blur what's behind the volume.
+		// Black fill so we don't blur what's behindthe volume.
 		TextureFactor = 0;
 		ColorArg1[0] = TFactor;
 		ColorOp[0] = SelectArg1;
@@ -94,6 +94,7 @@ technique Ambient
 		AlphaOp[0] = SelectArg1;
 		ColorOp[1] = Disable;
 		AlphaOp[1] = Disable;
+		sRGBWriteEnable = TRUE;
 	}
 }
 
@@ -153,8 +154,8 @@ technique Translucent
 	{
 		AlphaBlendEnable = False;
 		ZWriteEnable = True;
-		GAMMA_CORRECT_WRITE;
-
+		sRGBWriteEnable = TRUE;
+		
 		VertexShader = compile vs_3_0 Translucent_VS();
 		PixelShader = compile ps_3_0 Translucent_PS();
 	}

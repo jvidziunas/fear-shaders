@@ -36,8 +36,8 @@ MIPARAM_TEXTURE(tSpecularMap, 0, 2, "", false, "Specular map of the material. Th
 MIPARAM_TEXTURE(tNormalMap, 0, 3, "", false, "Normal map of the material. This represents the normal of each point on the surface");
 
 //the samplers for those textures
-SAMPLER_WRAP_sRGB(sDiffuseMapSampler, tDiffuseMap);
-SAMPLER_WRAP_sRGB(sEmissiveMapSampler, tEmissiveMap);
+SAMPLER_WRAP(sDiffuseMapSampler, tDiffuseMap);
+SAMPLER_WRAP(sEmissiveMapSampler, tEmissiveMap);
 SAMPLER_WRAP(sSpecularMapSampler, tSpecularMap);
 // Note : Normal maps should have at least trilinear filtering
 sampler sNormalMapSampler = sampler_state
@@ -45,7 +45,7 @@ sampler sNormalMapSampler = sampler_state
 	texture = <tNormalMap>;
 	AddressU = Wrap;
 	AddressV = Wrap;
-	//MipFilter = Linear;
+	MipFilter = Linear;
 };
 
 //--------------------------------------------------------------------
@@ -54,8 +54,8 @@ sampler sNormalMapSampler = sampler_state
 float3x3 GetInverseTangentSpace(MaterialVertex Vert)
 {
 	return GetInverseTangentSpace(	SKIN_VECTOR(Vert.Tangent, Vert), 
-								SKIN_VECTOR(Vert.Binormal, Vert), 
-								SKIN_VECTOR(Vert.Normal, Vert));
+									SKIN_VECTOR(Vert.Binormal, Vert), 
+									SKIN_VECTOR(Vert.Normal, Vert));
 }
 
 float3 GetPosition(MaterialVertex Vert)
@@ -71,13 +71,13 @@ float3 GetSurfaceNormal(float2 vCoord)
 
 float3 GetSurfaceNormal_Unit(float2 vCoord)
 {
-	return NormalExpand(tex2D(sNormalMapSampler, vCoord).xyz);
+	return normalize(GetSurfaceNormal(vCoord));
 }
 
 // Fetch the material diffuse color at a texture coordinate
 float4 GetMaterialDiffuse(float2 vCoord)
 {
-	return LinearizeAlpha( tex2D(sDiffuseMapSampler, vCoord) );
+	return tex2D(sDiffuseMapSampler, vCoord);
 }
 
 // Fetch the material specular color at a texture coordinate
@@ -99,7 +99,7 @@ float4 GetMaterialEmissive(float2 vCoord)
 struct PSData_Ambient 
 {
 	float4 Position : POSITION;
-	float2 TexCoord : TEXCOORD0_centroid;
+	float2 TexCoord : TEXCOORD0;
 };
 
 PSData_Ambient Ambient_VS(MaterialVertex IN)
@@ -125,7 +125,7 @@ technique Ambient
 {
 	pass Draw
 	{
-		GAMMA_CORRECT_WRITE;
+		sRGBWriteEnable = TRUE;
 
 		VertexShader = compile vs_3_0 Ambient_VS();
 		PixelShader = compile ps_3_0 Ambient_PS();
@@ -138,10 +138,10 @@ technique Ambient
 
 struct PSData_Point 
 {
-	float4 Position		: POSITION;
-	float2 TexCoord		: TEXCOORD0_centroid;
-	float3 LightVector	: TEXCOORD1_centroid;
-	float3 EyeVector		: TEXCOORD2_centroid;
+	float4 Position			: POSITION;
+	float2 TexCoord			: TEXCOORD0;
+	float3 LightVector		: TEXCOORD1;
+	float3 EyeVector		: TEXCOORD2;
 };
 
 PSData_Point Point_VS(MaterialVertex IN)
@@ -155,11 +155,8 @@ PSData_Point Point_VS(MaterialVertex IN)
 
 float4 Point_PS(PSData_Point IN) : COLOR
 {
-	float3 surfaceNormal = GetSurfaceNormal(IN.TexCoord);
-	float4 specularValue = GetMaterialSpecular(IN.TexCoord);
-	specularValue.w *= GetToksvigGlossScale(surfaceNormal, specularValue.w * fMaxSpecularPower);
 	return GetLitPixelColor(IN.LightVector, IN.EyeVector, 
-		normalize(surfaceNormal), GetMaterialDiffuse(IN.TexCoord), specularValue, 
+		GetSurfaceNormal_Unit(IN.TexCoord), GetMaterialDiffuse(IN.TexCoord), GetMaterialSpecular(IN.TexCoord), 
 		GetLightDiffuseColor().xyz, GetLightSpecularColor(), fMaxSpecularPower);
 }
 
@@ -167,7 +164,7 @@ technique Point
 {
 	pass Draw
 	{
-		GAMMA_CORRECT_WRITE;
+		sRGBWriteEnable = TRUE;
 
 		VertexShader = compile vs_3_0 Point_VS();
 		PixelShader = compile ps_3_0 Point_PS();
@@ -181,8 +178,8 @@ technique Point
 struct PSData_PointFill
 {
 	float4 Position								: POSITION;
-	float2 TexCoord								: TEXCOORD0_centroid;
-	float3 LightVector[NUM_POINT_FILL_LIGHTS]	: TEXCOORD1_centroid;
+	float2 TexCoord								: TEXCOORD0;
+	float3 LightVector[NUM_POINT_FILL_LIGHTS]	: TEXCOORD1;
 };
 
 PSData_PointFill PointFill_VS(MaterialVertex IN)
@@ -201,7 +198,7 @@ technique PointFill
 {
 	pass Draw
 	{
-		GAMMA_CORRECT_WRITE;
+		sRGBWriteEnable = TRUE;
 
 		VertexShader = compile vs_3_0 PointFill_VS();
 		PixelShader = compile ps_3_0 PointFill_PS();
@@ -215,10 +212,10 @@ technique PointFill
 struct PSData_SpotProjector
 {
 	float4 Position			: POSITION;
-	float2 TexCoord			: TEXCOORD0_centroid;
-	float3 LightVector		: TEXCOORD1_centroid;
-	float3 EyeVector		: TEXCOORD2_centroid;
-	float4 LightMapCoord	: TEXCOORD3_centroid;
+	float2 TexCoord			: TEXCOORD0;
+	float3 LightVector		: TEXCOORD1;
+	float3 EyeVector		: TEXCOORD2;
+	float4 LightMapCoord	: TEXCOORD3;
 	float2 ClipPlanes		: TEXCOORD4;
 };	
 
@@ -240,12 +237,9 @@ PSData_SpotProjector SpotProjector_VS(MaterialVertex IN)
 
 float4 SpotProjector_PS(PSData_SpotProjector IN) : COLOR
 {
-	float3 surfaceNormal = GetSurfaceNormal(IN.TexCoord);
-	float4 specularValue = GetMaterialSpecular(IN.TexCoord);
-	specularValue.w *= GetToksvigGlossScale(surfaceNormal, specularValue.w * fMaxSpecularPower);
 	// Get the pixel
 	float4 vPixelColor = GetLitPixelColor(IN.LightVector, IN.EyeVector, 
-		normalize(surfaceNormal), GetMaterialDiffuse(IN.TexCoord), specularValue, 
+		GetSurfaceNormal_Unit(IN.TexCoord), GetMaterialDiffuse(IN.TexCoord), GetMaterialSpecular(IN.TexCoord), 
 		DX9GetSpotProjectorDiffuseColor(IN.LightMapCoord), DX9GetSpotProjectorSpecularColor(IN.LightMapCoord), fMaxSpecularPower);
 
 	// Perform clipping
@@ -256,7 +250,7 @@ technique SpotProjector
 {
 	pass Draw
 	{
-		GAMMA_CORRECT_WRITE;
+		sRGBWriteEnable = TRUE;
 
 		VertexShader = compile vs_3_0 SpotProjector_VS();
 		PixelShader = compile ps_3_0 SpotProjector_PS();
@@ -269,10 +263,10 @@ technique SpotProjector
 
 struct PSData_CubeProjector
 {
-	float4 Position		: POSITION;
-	float2 TexCoord		: TEXCOORD0_centroid;
-	float3 LightVector	: TEXCOORD1_centroid;
-	float3 EyeVector		: TEXCOORD2_centroid;
+	float4 Position			: POSITION;
+	float2 TexCoord			: TEXCOORD0;
+	float3 LightVector		: TEXCOORD1;
+	float3 EyeVector		: TEXCOORD2;
 	float3 LightMapCoord	: TEXCOORD3;
 };	
 
@@ -291,12 +285,9 @@ PSData_CubeProjector CubeProjector_VS(MaterialVertex IN)
 
 float4 CubeProjector_PS(PSData_CubeProjector IN) : COLOR
 {
-	float3 surfaceNormal = GetSurfaceNormal(IN.TexCoord);
-	float4 specularValue = GetMaterialSpecular(IN.TexCoord);
-	specularValue.w *= GetToksvigGlossScale(surfaceNormal, specularValue.w * fMaxSpecularPower);
 	// Get the pixel
 	return GetLitPixelColor(IN.LightVector, IN.EyeVector, 
-		normalize(surfaceNormal), GetMaterialDiffuse(IN.TexCoord), specularValue, 
+		GetSurfaceNormal_Unit(IN.TexCoord), GetMaterialDiffuse(IN.TexCoord), GetMaterialSpecular(IN.TexCoord), 
 		GetCubeProjectorDiffuseColor(IN.LightMapCoord), GetCubeProjectorSpecularColor(IN.LightMapCoord), fMaxSpecularPower);
 }
 
@@ -304,7 +295,7 @@ technique CubeProjector
 {
 	pass Draw
 	{
-		GAMMA_CORRECT_WRITE;
+		sRGBWriteEnable = TRUE;
 
 		VertexShader = compile vs_3_0 CubeProjector_VS();
 		PixelShader = compile ps_3_0 CubeProjector_PS();
@@ -317,11 +308,11 @@ technique CubeProjector
 
 struct PSData_Directional
 {
-	float4 Position		: POSITION;
-	float2 TexCoord		: TEXCOORD0_centroid;
-	float3 LightVector	: TEXCOORD1_centroid;
-	float3 EyeVector		: TEXCOORD2_centroid;
-	float3 TexSpace		: TEXCOORD3_centroid;
+	float4 Position			: POSITION;
+	float2 TexCoord			: TEXCOORD0;
+	float3 LightVector		: TEXCOORD1;
+	float3 EyeVector		: TEXCOORD2;
+	float3 TexSpace			: TEXCOORD3;
 };
 
 PSData_Directional Directional_VS(MaterialVertex IN)
@@ -335,12 +326,8 @@ PSData_Directional Directional_VS(MaterialVertex IN)
 
 float4 Directional_PS(PSData_Directional IN) : COLOR
 {
-	float3 surfaceNormal = GetSurfaceNormal(IN.TexCoord);
-	float4 specularValue = GetMaterialSpecular(IN.TexCoord);
-	specularValue.w *= GetToksvigGlossScale(surfaceNormal, specularValue.w * fMaxSpecularPower);
-
-	return GetDirectionalLitPixelColor(normalize(IN.LightVector), IN.TexSpace, IN.EyeVector, normalize(surfaceNormal),
-			GetMaterialDiffuse(IN.TexCoord), specularValue, fMaxSpecularPower);
+	return GetDirectionalLitPixelColor(normalize(IN.LightVector), IN.TexSpace, IN.EyeVector, GetSurfaceNormal_Unit(IN.TexCoord),
+			GetMaterialDiffuse(IN.TexCoord), GetMaterialSpecular(IN.TexCoord), fMaxSpecularPower);
 }
 
 //----------------------------------------------------------------------------
@@ -349,8 +336,8 @@ technique Directional
 {
 	pass Draw
 	{
-		GAMMA_CORRECT_WRITE;
-
+		sRGBWriteEnable = TRUE;
+		
 		VertexShader = compile vs_3_0 Directional_VS();
 		PixelShader = compile ps_3_0 Directional_PS();
 	}

@@ -7,10 +7,23 @@
 #include "lightdefs.fxh"
 #include "clipmap.fxh"
 #include "transforms.fxh"
-#include "BRDFLib.fxh"
+
+#ifndef PI
+#define PI	3.14159265358979323846
+#endif
 
 // Forward declarations
-float CalcDistanceAttenuation(float3 vVector);  // in sdk\lightdefs.fxh
+half CalcDistanceAttenuation(half3 vVector);  // in sdk\lightdefs.fxh
+
+void ApplyToksvigScale(float3 bump, inout float exponent)
+{
+    float rlen = 1.0f / saturate( length( bump ) );
+    exponent = 1.0f / ( 1.0f + exponent * (rlen - 1.0f) );
+}
+
+float SpecPowerToRoughness(float s) {
+    return sqrt(2.0 / (s + 2.0));
+}
 
 // Standard diffuse color contribution calculator
 half3 GetDiffuseColor(
@@ -21,30 +34,18 @@ half3 GetDiffuseColor(
 	)
 {
 	// Angular attenuation
-	half fAngularAttenuation = saturate( dot( vNormal, vLightVector ) );
+	half fAngularAttenuation = saturate(dot(vNormal, vLightVector));
 
 	// Final diffuse contribution
-	half3 vResult = vMaterialDiffuseColor * vLightDiffuseColor * fAngularAttenuation;
-
-	return vResult;
+	return vMaterialDiffuseColor * vLightDiffuseColor * fAngularAttenuation;
 }
 
+// Standard diffuse color contribution calculator
 half3 GetDiffuseColor(
-		half3 vNormal, // Surface normal at the point
-		half3 vLightVector, // Unit vector from the point to the light
-		half3 vMaterialDiffuseColor, // Diffuse material color at the point
-		half3 vLightDiffuseColor, // Light color
-		half kr	// Reflectance at normal incidence
-	)
+		half3 vMaterialDiffuseColor,
+		half3 vLightDiffuseColor )
 {
-	// Angular attenuation
-	half fAngularAttenuation = saturate( dot( vNormal, vLightVector ) );
-
-	// Final diffuse contribution
-	half3 vResult = vMaterialDiffuseColor * vLightDiffuseColor * fAngularAttenuation;
-	vResult = ( vResult * (1.0f - kr) );
-
-	return vResult;
+	return vMaterialDiffuseColor * vLightDiffuseColor;
 }
 
 // Standard Blinn specular color contribution calculator
@@ -59,19 +60,18 @@ float3 GetBlinnSpecularColor(
 	)
 {
 	// Calculate the float-vector
-	float3 vHalfVector = normalize(vEyeVector + vLightVector);
-
-	// Get the specular attenuation value
-	float fSpecular = saturate(dot(vNormal, vHalfVector));
-	float fFinalGloss = fMaterialGloss * fMaxSpecularPower;
-	fSpecular = pow(fSpecular, fFinalGloss);
-	// If we expand this out it can be computed with a single multiply-add
-	float fNormalizationConstant = fFinalGloss/(8 * 3.14159265) + (1.0f/3.14159265);
-
-	// Final specular contribution
-	float3 vResult = vLightSpecularColor * vMaterialSpecularColor * fSpecular * fNormalizationConstant;
-
-	return vResult;
+	float3 vHalfVector = normalize( vEyeVector + vLightVector );
+	half   hdotN = saturate( dot( vHalfVector, vNormal ) );
+	half   vdotN = saturate( dot( vEyeVector, vNormal ) );
+	half   vdotH = saturate( dot( vEyeVector, vHalfVector ) );
+	half   ldotH = saturate( dot( vLightVector, vHalfVector ) );
+	half   roughness = SpecPowerToRoughness(fMaterialGloss * fMaxSpecularPower);
+	half   rrrr = roughness * roughness * roughness * roughness;
+	
+	// disney GGX
+	float D = ( hdotN * hdotN ) * ( rrrr - 1.0 ) + 1.0;
+	float VFapprox = ( ldotH * ldotH ) * ( roughness + 0.5 );
+	return ( rrrr / ( 4.0 * PI * D * D * VFapprox ) ) * vLightSpecularColor * vMaterialSpecularColor;
 }
 
 // Standard diffuse + Blinn specular pixel color calculator
@@ -88,13 +88,12 @@ float4 GetLitPixelColor(
 {
 	float4 vResult = float4(0,0,0,1);
 
-	float fDistanceAttenuation = CalcDistanceAttenuation(vLightVector);
-
 	// Get the unit light vector
 	float3 vUnitLightVector = normalize(vLightVector);
 
 	// *** Diffuse ***
-	vResult.xyz = GetDiffuseColor( vSurfaceNormal, vUnitLightVector, vMaterialDiffuseColor.xyz, vLightDiffuseColor );
+	// GetDiffuseColor(vSurfaceNormal, vUnitLightVector, vMaterialDiffuseColor.xyz, vLightDiffuseColor);
+	vResult.xyz = GetDiffuseColor(vMaterialDiffuseColor.xyz, vLightDiffuseColor);
 
 	// *** Specular ***
 	vResult.xyz += GetBlinnSpecularColor(
@@ -104,10 +103,10 @@ float4 GetLitPixelColor(
 		vMaterialSpecularColor.xyz,
 		vMaterialSpecularColor.w,
 		fMaxSpecularPower,
-		vLightSpecularColor );
+		vLightSpecularColor);
 
 	// *** Distance attenuation ***
-	vResult.xyz *= fDistanceAttenuation;
+	vResult.xyz *= saturate(dot(vSurfaceNormal, vUnitLightVector)) * CalcDistanceAttenuation(vLightVector);
 
 	return vResult;
 }
@@ -146,21 +145,15 @@ float4 GetPointFillPixelColor(
 	)
 {
 
-	float4 vResult = float4(0,0,0,1);
+	half4 vResult = half4(0,0,0,1);
 	
 	for(int nCurrLight = 0; nCurrLight < NUM_POINT_FILL_LIGHTS; nCurrLight++)
 	{
-		half3 vLightDiffuseColor = CorrectLight(vObjectFillLightColor[nCurrLight].xyz);
-		//float3 vLightVector_pp = vLightVector[nCurrLight];
-		float3 vUnitLightVector = normalize(vLightVector[nCurrLight]); //normalize(vLightVector_pp);
-
-		// *** Diffuse ***
-		half3 vLightResult = GetDiffuseColor(vUnitSurfaceNormal, vUnitLightVector, 1.0, vLightDiffuseColor);
-
-		// *** Distance attenuation ***
-		vLightResult *= CalcDistanceAttenuation(vLightVector[nCurrLight]);
+		half3 vLightDiffuseColor = vObjectFillLightColor[nCurrLight].xyz;
+		half3 vLightVector_pp = vLightVector[nCurrLight];
+		half3 vUnitLightVector = normalize(vLightVector_pp);
 		
-		vResult.xyz += vLightResult;
+		vResult.xyz += GetDiffuseColor(vUnitSurfaceNormal, vUnitLightVector, 1.0, vLightDiffuseColor) * CalcDistanceAttenuation(vLightVector[nCurrLight]);
 	}
 	
 	vResult.xyz *= vMaterialDiffuseColor.xyz;
@@ -215,16 +208,16 @@ half DX9GetSpotProjectorClipResult(half2 vNearFarClip, half4 vPosition)
 
 //given a four component vector representing the interpolated value returned from the spot
 //projector texture coordinate generator, returns the spot projector's color
-half3	DX9GetSpotProjectorDiffuseColor( half4 vUVWCoords )
+half3	DX9GetSpotProjectorDiffuseColor(half4 vUVWCoords)
 {
 	half3 vLightMapColor = tex2Dproj(sSpotProjector_LightMapSampler, vUVWCoords).xyz;
 	vLightMapColor *= GetLightDiffuseColor().xyz;
 	return vLightMapColor;
 }
 
-half3	DX9GetSpotProjectorSpecularColor( half4 vUVWCoords )
+half3	DX9GetSpotProjectorSpecularColor(half4 vUVWCoords)
 {
-	half3 fSpecularIntensity = (half3)tex2Dproj(sSpotProjector_LightMapSampler, vUVWCoords).w;
+	half fSpecularIntensity = tex2Dproj(sSpotProjector_LightMapSampler, vUVWCoords).w;
 	return GetLightSpecularColor() * fSpecularIntensity;
 }
 
@@ -302,7 +295,7 @@ half4 GetDirectionalLitPixelColor(
 	half4 vBaseColor =	GetDirectionalLightBaseColor(vTexSpace);
 
 	// *** Diffuse ***
-	vResult.xyz += GetDiffuseColor(vSurfaceNormal, vLightUnit, vMaterialDiffuseColor.xyz, GetDirectionalLightDiffuse(vBaseColor));
+	vResult.xyz += GetDiffuseColor(vMaterialDiffuseColor.xyz, GetDirectionalLightDiffuse(vBaseColor));
 
 	// *** Specular ***
 	vResult.xyz += GetBlinnSpecularColor(
@@ -313,6 +306,8 @@ half4 GetDirectionalLitPixelColor(
 		vMaterialSpecularColor.w,
 		fMaxSpecularPower,
 		GetDirectionalLightSpecular(vBaseColor));
+
+	vResult.xyz *= saturate(dot(vSurfaceNormal, vLightUnit));
 
 	return vResult;
 }

@@ -41,7 +41,7 @@ sampler sNormalMapSampler = sampler_state
 	texture = <tNormalMap>;
 	AddressU = Wrap;
 	AddressV = Wrap;
-	//MipFilter = Linear;
+	MipFilter = Linear;
 };
 
 //--------------------------------------------------------------------
@@ -72,12 +72,12 @@ float3 GetSurfaceNormal(float2 vCoord)
 
 struct PSData_Translucent 
 {
-	float4 Position		: POSITION;
-	float2 TexCoord		: TEXCOORD0_centroid;
-	float4 ScreenCoord	: TEXCOORD1_centroid;
-	float3 TanSpace0	: TEXCOORD2_centroid;
-	float3 TanSpace1	: TEXCOORD3_centroid;
-	float3 TanSpace2	: TEXCOORD4_centroid;
+	float4 Position : POSITION;
+	float2 TexCoord : TEXCOORD0;
+	float4 ScreenCoord : TEXCOORD2;
+	float3 TanSpace0 : TEXCOORD3;
+	float3 TanSpace1 : TEXCOORD4;
+	float3 TanSpace2 : TEXCOORD5;
 };
 
 PSData_Translucent Translucent_VS(MaterialVertex IN)
@@ -118,8 +118,8 @@ technique Translucent
 	pass Draw
 	{
 		AlphaBlendEnable = False;
-		GAMMA_CORRECT_WRITE;
-
+		sRGBWriteEnable = TRUE;
+		
 		VertexShader = compile vs_3_0 Translucent_VS();
 		PixelShader = compile ps_3_0 Translucent_PS();
 	}

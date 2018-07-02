@@ -5,6 +5,6 @@
 
 // the previous rendered frame
 shared texture tCurFrameMap;
-SAMPLER_CLAMP_sRGB(sCurFrameMapSampler, tCurFrameMap);
+SAMPLER_CLAMP(sCurFrameMapSampler, tCurFrameMap);
 
 #endif

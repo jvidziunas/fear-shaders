@@ -57,7 +57,7 @@ technique ShadowVolumeDebug
 		StencilEnable = False;
 		ColorWriteEnable = Red|Green|Blue|Alpha;
 		CullMode = None;
-		VertexShader = compile vs_1_1 ShadowVolume_VS();
+		VertexShader = compile vs_3_0 ShadowVolume_VS();
 		TextureFactor = 0x28282828;
 		ColorArg1[0] = TFactor;
 		ColorOp[0] = SelectArg1;
@@ -74,7 +74,7 @@ technique ShadowVolumeDebug
 		StencilEnable = False;
 		ColorWriteEnable = Red|Green|Blue|Alpha;
 		CullMode = None;
-		VertexShader = compile vs_1_1 ShadowVolume_VS();
+		VertexShader = compile vs_3_0 ShadowVolume_VS();
 		TextureFactor = 0x20202020;
 		ColorArg1[0] = TFactor;
 		ColorOp[0] = SelectArg1;
@@ -118,7 +118,7 @@ technique DirectionalShadowVolumeDebug
 		StencilEnable = False;
 		ColorWriteEnable = Red|Green|Blue|Alpha;
 		CullMode = None;
-		VertexShader = compile vs_1_1 DirectionalShadowVolume_VS();
+		VertexShader = compile vs_3_0 DirectionalShadowVolume_VS();
 		TextureFactor = 0x28282828;
 		ColorArg1[0] = TFactor;
 		ColorOp[0] = SelectArg1;
@@ -135,7 +135,7 @@ technique DirectionalShadowVolumeDebug
 		StencilEnable = False;
 		ColorWriteEnable = Red|Green|Blue|Alpha;
 		CullMode = None;
-		VertexShader = compile vs_1_1 DirectionalShadowVolume_VS();
+		VertexShader = compile vs_3_0 DirectionalShadowVolume_VS();
 		TextureFactor = 0x20202020;
 		ColorArg1[0] = TFactor;
 		ColorOp[0] = SelectArg1;

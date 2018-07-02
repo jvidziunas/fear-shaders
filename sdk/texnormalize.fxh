@@ -12,7 +12,7 @@
 //-------------------------------------------------------------------------------
 // Cubic normalization map
 shared texture tNormalizationMap;
-SAMPLER_WRAP(sNormalizationMapSampler, tNormalizationMap);
+SAMPLER_WRAP_LINEAR(sNormalizationMapSampler, tNormalizationMap);
 
 // Normalizes a texture coordinate input in a pixel shader
 float3 TexNormalizeVector(float3 vValue)

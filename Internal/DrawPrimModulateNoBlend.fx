@@ -28,7 +28,7 @@ PSData_Translucent Translucent_VS(DrawPrimVertex IN)
 {
 	PSData_Translucent OUT;
 	OUT.Position		= mul(mDrawPrimToClip, float4(IN.Position, 1.0f));
-	OUT.DiffuseTexCoord = IN.TexCoord;
+	OUT.DiffuseTexCoord	= IN.TexCoord;
 	OUT.Color			= IN.Color;
 	return OUT;
 }
@@ -45,10 +45,9 @@ technique Translucent
 	pass p0 
 	{
 		AlphaBlendEnable	= false;
-		GAMMA_CORRECT_WRITE;
+		sRGBWriteEnable		= TRUE;
 
 		VertexShader		= compile vs_3_0 Translucent_VS();
 		PixelShader			= compile ps_3_0 Translucent_PS();
 	}
 }
-

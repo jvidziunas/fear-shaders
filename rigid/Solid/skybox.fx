@@ -10,7 +10,7 @@
 struct MaterialVertex
 {
     float3	Position	: POSITION;
-    float3	Normal		: NORMAL;
+    float3	Normal	: NORMAL;
     float2	TexCoord	: TEXCOORD0;
 
 	DECLARE_SKELETAL_WEIGHTS
@@ -28,7 +28,7 @@ MIPARAM_TEXTURE(tDiffuseMap, 0, 0, "", true, "Diffuse map of the material. This 
 MIPARAM_VECTOR(vTintColor, 1.0f, 1.0f, 1.0f, "This is a color that will be multiplied by the skybox color to allow for controlling the color of the sky");
 
 //the samplers for those textures
-SAMPLER_WRAP_sRGB(sDiffuseMapSampler, tDiffuseMap);
+SAMPLER_WRAP(sDiffuseMapSampler, tDiffuseMap);
 
 //--------------------------------------------------------------------
 // Utility functions
@@ -51,7 +51,7 @@ float4 GetMaterialDiffuse(float3 vCoord)
 struct PSData_Sky
 {
 	float4 Position : POSITION;
-	float3 TexCoord : TEXCOORD0_centroid;
+	float3 TexCoord : TEXCOORD0;
 };
 
 PSData_Sky Sky_VS(MaterialVertex IN)
@@ -64,9 +64,9 @@ PSData_Sky Sky_VS(MaterialVertex IN)
 
 float4 Sky_PS(PSData_Sky IN) : COLOR
 {
-	float4 vResult = float4( 0, 0, 0, 1 );
+	float4 vResult = float4(0,0,0,1);
 
-	vResult.xyz = GetMaterialDiffuse(IN.TexCoord) * LinearizeColor( vTintColor ) * vObjectColor;
+	vResult.xyz = GetMaterialDiffuse(IN.TexCoord) * vTintColor * vObjectColor;
 	
 	return vResult;
 }
@@ -78,8 +78,8 @@ technique Ambient
 		AlphaTestEnable = False;
 		SrcBlend = One;
 		DestBlend = Zero;
-		GAMMA_CORRECT_WRITE;
-
+		sRGBWriteEnable = TRUE;
+		
 		VertexShader = compile vs_3_0 Sky_VS();
 		PixelShader = compile ps_3_0 Sky_PS();
 	}

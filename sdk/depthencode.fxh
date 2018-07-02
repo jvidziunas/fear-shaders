@@ -12,15 +12,15 @@
 // Depth map 
 // RGB = depth.  A = stencil
 shared texture tDepthMap;
-SAMPLER_CLAMP_POINT(sDepthMapSampler, tDepthMap);
+SAMPLER_CLAMP_POINT_LINEAR(sDepthMapSampler, tDepthMap);
 
 // Encoding map for depth values (rg)
 shared texture tDepth_EncodeMapRG;
-SAMPLER_WRAP_POINT(sDepth_EncodeMapRGSampler, tDepth_EncodeMapRG);
+SAMPLER_WRAP_POINT_LINEAR(sDepth_EncodeMapRGSampler, tDepth_EncodeMapRG);
 
 // Encoding map for depth values (ba)
 shared texture tDepth_EncodeMapBA;
-SAMPLER_WRAP_POINT(sDepth_EncodeMapBASampler, tDepth_EncodeMapBA);
+SAMPLER_WRAP_POINT_LINEAR(sDepth_EncodeMapBASampler, tDepth_EncodeMapBA);
 
 // Scene description values
 shared float fScene_FarZ;
@@ -78,8 +78,8 @@ float DecodeDepth(float3 vValue)
 	struct PSData_Encode_Depth_Default												\
 	{																				\
 		float4 Position : POSITION;													\
-		float2 DepthRG : TEXCOORD0_centroid;										\
-		float2 DepthBA : TEXCOORD1_centroid;										\
+		float2 DepthRG : TEXCOORD0;													\
+		float2 DepthBA : TEXCOORD1;													\
 	};																				
 
 // Internal macro for the default depth encoding -- VS function
@@ -99,10 +99,9 @@ float DecodeDepth(float3 vValue)
 	{																				\
 		pass Draw																	\
 		{																			\
-			GAMMA_LINEAR_RENDERTARGET;												\
-																					\
 			VertexShader = compile vs_3_0 Encode_Depth_Default_VS();				\
 			PixelShader = compile ps_3_0 EncodeDepth();								\
+			sRGBWriteEnable = FALSE;												\
 		}																			\
 	}
 
@@ -112,8 +111,9 @@ float DecodeDepth(float3 vValue)
 	{																				\
 		pass Draw																	\
 		{																			\
-			VertexShader = compile vs_1_1 Encode_Depth_Default_VS();				\
-			PixelShader = compile ps_1_1 EncodeDepth();								\
+			VertexShader = compile vs_3_0 Encode_Depth_Default_VS();				\
+			PixelShader = compile ps_3_0 EncodeDepth();								\
+			sRGBWriteEnable = FALSE;												\
 		}																			\
 	}
 

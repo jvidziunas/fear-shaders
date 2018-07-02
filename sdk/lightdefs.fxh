@@ -43,7 +43,7 @@ shared float4x4 mSpotProjector_LightTransform;
 
 // Texture emitted by the spot projector
 shared texture tSpotProjector_LightMap;
-SAMPLER_CLAMP_sRGB(sSpotProjector_LightMapSampler, tSpotProjector_LightMap);
+SAMPLER_CLAMP(sSpotProjector_LightMapSampler, tSpotProjector_LightMap);
 
 ////////////////////////////////
 // Cube Projector
@@ -53,23 +53,23 @@ shared float3x4 mCubeProjector_LightTransform;
 
 // Texture emitted by the cube projector
 shared texture tCubeProjector_LightMap;
-SAMPLER_WRAP_sRGB(sCubeProjector_LightMapSampler, tCubeProjector_LightMap);
+SAMPLER_WRAP(sCubeProjector_LightMapSampler, tCubeProjector_LightMap);
 
 ////////////////////////////////
 // Directional Light
 
 //the texture that is projected from the directional light onto the geometry
 shared texture tDirectional_Projection;
-SAMPLER_CLAMP_sRGB(sDirectional_ProjectionSampler, tDirectional_Projection);
+SAMPLER_CLAMP(sDirectional_ProjectionSampler, tDirectional_Projection);
 
 //the attenuation texture that controls the falloff of light as it moves away from the plane of emission
 shared texture tDirectional_Attenuation;
-SAMPLER_CLAMP(sDirectional_AttenuationSampler, tDirectional_Attenuation);
+SAMPLER_CLAMP_LINEAR(sDirectional_AttenuationSampler, tDirectional_Attenuation);
 
 //the texture that can be used with a point projected in clip space to determine whether or not the pixel
 //should be lit
 shared texture tDirectional_ClipMap;
-SAMPLER_CLAMP_POINT(sDirectional_ClipMapSampler, tDirectional_ClipMap);
+SAMPLER_CLAMP_POINT_LINEAR(sDirectional_ClipMapSampler, tDirectional_ClipMap);
 
 //a transform that will take an object space position and map it to a unit cube in quadrant one that can be
 //used for determining the texture projections
@@ -89,10 +89,15 @@ shared float fDirectional_FarPlane;
 // the distance attenuation. This uses the distance attenuation function of
 // (1 - d^2)^2 where d is the normalized distance relative to the light radius.
 //-------------------------------------------------------------------------------
-float CalcDistanceAttenuation(float3 vOffset)
+half CalcDistanceAttenuation(half3 vOffset)
 {
-	float fDistanceSquared = 1 - saturate(dot(vOffset, vOffset));
+#if 0
+	half fDistanceSquared = 1 - saturate(dot(vOffset, vOffset));
 	return fDistanceSquared * fDistanceSquared;
+#else
+	float transformedDistance = 1.2f * tan( 0.5f * 3.14159f * saturate(length(vOffset)) ) + 1.0f;
+	return 1.0f / (transformedDistance * transformedDistance);
+#endif
 }
 
 //-------------------------------------------------------------------------------
@@ -126,10 +131,10 @@ float3	GetCubeProjectorTexCoord(float3 vPosition)
 //-------------------------------------------------------------------------------
 
 //gets the light's diffuse color, modulated by the object color
-half4	GetLightDiffuseColor()	{ return float4( CorrectLight(vObjectLightColor.xyz), vObjectLightColor.w ); }
+half4	GetLightDiffuseColor()	{ return vObjectLightColor; }
 
 //gets lights specular color
-half3	GetLightSpecularColor()	{ return CorrectLight(vSpecularColor); }
+half3	GetLightSpecularColor()	{ return vSpecularColor; }
 
 //given a three component vector representing the interpolated value returned from the spot
 //cube texture coordinate generator, returns the cube projector's color
@@ -140,12 +145,10 @@ half3	GetCubeProjectorDiffuseColor(float3 vUVCoords)
 	return vLightMapColor;
 }
 
-half3	GetCubeProjectorSpecularColor( float3 vUVCoords )
+half3	GetCubeProjectorSpecularColor(float3 vUVCoords)
 {
 	half fSpecularIntensity = texCUBE(sCubeProjector_LightMapSampler, vUVCoords).w;
 	return GetLightSpecularColor() * fSpecularIntensity;
 }
-
-
 
 #endif

@@ -1,0 +1,132 @@
+#include "..\..\..\sdk\basedefs.fxh"
+#include "..\..\..\sdk\skeletal.fxh"
+#include "..\..\..\sdk\transforms.fxh"
+#include "..\..\..\sdk\lightdefs.fxh"
+#include "..\..\..\sdk\screencoords.fxh"
+#include "..\..\..\sdk\curframemap.fxh"
+
+//--------------------------------------------------------------------
+// Input/output formats
+
+// Represents a single input vertex that will be fed into each vertex shader
+struct MaterialVertex
+{
+    float3	Position	: POSITION;
+    float2	TexCoord	: TEXCOORD0;
+#ifndef SKELETAL_MATERIAL
+	float4	Color		: COLOR0;
+#endif
+    float3	Normal		: NORMAL; 
+	float3	Tangent		: TANGENT;
+	float3	Binormal	: BINORMAL;
+
+	DECLARE_SKELETAL_WEIGHTS
+};
+DECLARE_VERTEX_FORMAT(MaterialVertex);
+DECLARE_DESCRIPTION("This is the DX8 version of the blur shader.");
+DECLARE_DOCUMENATION("Shaders\\Docs\\blur\\main.htm");
+
+//--------------------------------------------------------------------
+// Material parameters
+
+MIPARAM_SURFACEFLAGS;
+// Kernel size for the blur
+MIPARAM_FLOAT(fBlurScale, 1.5, "Blur kernel size");
+// the textures exported for the user
+MIPARAM_TEXTURE(tDiffuseMap, 0, 0, "", true, "Diffuse map of the material. This represents the color of the light refracted");
+
+//the samplers for those textures
+SAMPLER_WRAP(sDiffuseMapSampler, tDiffuseMap);
+
+//--------------------------------------------------------------------
+// Utility functions
+
+float3 GetPosition(MaterialVertex Vert)
+{
+	return SKIN_POINT(Vert.Position, Vert);
+}
+
+// Fetch the material diffuse color at a texture coordinate
+float4 GetMaterialDiffuse(float2 vCoord)
+{
+	return tex2D(sDiffuseMapSampler, vCoord);
+}
+
+//////////////////////////////////////////////////////////////////////////////
+// Ambient
+//////////////////////////////////////////////////////////////////////////////
+
+struct PSData_Translucent 
+{
+	float4 Position : POSITION;
+#ifndef SKELETAL_MATERIAL
+	float4 Color : COLOR0;
+#endif
+	float2 TexCoord : TEXCOORD0;
+	float4 ScreenCoord[3] : TEXCOORD1;
+};
+
+PSData_Translucent Translucent_VS(MaterialVertex IN)
+{
+	PSData_Translucent OUT;
+	OUT.Position = TransformToClipSpace(GetPosition(IN));
+#ifndef SKELETAL_MATERIAL
+	OUT.Color = IN.Color;
+#endif
+	OUT.TexCoord = IN.TexCoord;
+	float4 vScreenCoord = GetScreenTexCoords(OUT.Position);
+	float2 vResMultiplier = (vScene_ScreenRes.x / 800) / vScene_ScreenRes;
+	for (int loop = 0; loop < 3; ++loop)
+	{
+		float2 vOffset = vResMultiplier * fBlurScale;
+		float theta = radians(120 * loop);
+		float2 vRotatedOffset = float2(	
+					dot(vOffset, float2(cos(theta), sin(theta))), 
+					dot(vOffset, float2(-sin(theta), cos(theta))));
+		float2 vProjectedOffset = vRotatedOffset * vScreenCoord.w;
+		OUT.ScreenCoord[loop] = vScreenCoord + float4(vProjectedOffset.x, vProjectedOffset.y, 0,0);
+	}
+
+	return OUT;
+}
+
+float4 Translucent_PS(PSData_Translucent IN) : COLOR
+{
+#ifndef SKELETAL_MATERIAL
+	float4 vResult = float4(0,0,0,IN.Color.w);
+#else
+	float4 vResult = float4(0,0,0,1);
+#endif
+
+	float4 vDiffuse = GetMaterialDiffuse(IN.TexCoord);
+	
+	vResult.xyz = tex2D(sCurFrameMapSampler, IN.ScreenCoord[0]).xyz / 3.0;
+	vResult.xyz += tex2D(sCurFrameMapSampler, IN.ScreenCoord[1]).xyz / 3.0;
+	vResult.xyz += tex2D(sCurFrameMapSampler, IN.ScreenCoord[2]).xyz / 3.0;
+
+	vResult.w *= vDiffuse.w;
+
+#ifndef SKELETAL_MATERIAL
+	vResult.xyz *= vDiffuse.xyz * IN.Color.xyz;
+#else
+	vResult.xyz *= vDiffuse.xyz;
+#endif
+	
+	return vResult;
+}
+
+technique Translucent
+{
+	pass Draw
+	{
+		AlphaBlendEnable = True;
+		SrcBlend = SrcAlpha;
+		DestBlend = InvSrcAlpha;
+		VertexShader = compile vs_1_1 Translucent_VS();
+		PixelShader = compile ps_1_1 Translucent_PS();
+		TextureTransformFlags[1] = Projected;
+		TextureTransformFlags[2] = Projected;
+		TextureTransformFlags[3] = Projected;
+	}
+}
+

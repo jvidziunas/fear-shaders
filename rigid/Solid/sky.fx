@@ -26,20 +26,20 @@ MIPARAM_SURFACEFLAGS;
 MIPARAM_TEXTURE(tDiffuseMap, 0, 0, "", true, "Diffuse map of the material. This represents the color of the sky.");
 
 //the samplers for those textures
-SAMPLER_WRAP_sRGB(sDiffuseMapSampler, tDiffuseMap);
+SAMPLER_WRAP(sDiffuseMapSampler, tDiffuseMap);
 
 //--------------------------------------------------------------------
 // Utility functions
 
 float3 GetPosition(MaterialVertex Vert)
 {
-	return SKIN_POINT( Vert.Position, Vert );
+	return SKIN_POINT(Vert.Position, Vert);
 }
 
 // Fetch the material diffuse color at a texture coordinate
-float4 GetMaterialDiffuse( float2 vCoord )
+float4 GetMaterialDiffuse(float2 vCoord)
 {
-	return tex2D( sDiffuseMapSampler, vCoord );
+	return tex2D(sDiffuseMapSampler, vCoord);
 }
 
 //////////////////////////////////////////////////////////////////////////////
@@ -49,10 +49,10 @@ float4 GetMaterialDiffuse( float2 vCoord )
 struct PSData_Sky
 {
 	float4 Position : POSITION;
-	float2 TexCoord : TEXCOORD0_centroid;
+	float2 TexCoord : TEXCOORD0;
 };
 
-PSData_Sky Sky_VS( MaterialVertex IN )
+PSData_Sky Sky_VS(MaterialVertex IN)
 {
 	PSData_Sky OUT;
 	OUT.Position = TransformToClipSpace(GetPosition(IN));
@@ -60,12 +60,11 @@ PSData_Sky Sky_VS( MaterialVertex IN )
 	return OUT;
 }
 
-float4 Sky_PS( PSData_Sky IN ) : COLOR
+float4 Sky_PS(PSData_Sky IN) : COLOR
 {
-	float4 vResult = float4( 0, 0, 0, 1 );
+	float4 vResult = float4(0,0,0,1);
 
-	vResult = GetMaterialDiffuse(IN.TexCoord) * LinearizeColor( GetLightDiffuseColor() );
-	clip( vResult.w - 0.37647f );
+	vResult = GetMaterialDiffuse(IN.TexCoord) * GetLightDiffuseColor();
 	
 	return vResult;
 }
@@ -74,13 +73,13 @@ technique Translucent
 {
 	pass Draw
 	{
-		// AlphaRef = 96;
-		// AlphaFunc = Greater;
-		// AlphaTestEnable = True;
+		AlphaRef = 96;
+		AlphaFunc = Greater;
+		AlphaTestEnable = True;
 		SrcBlend = One;
 		DestBlend = Zero;
-		GAMMA_CORRECT_WRITE;
-
+		sRGBWriteEnable = TRUE;
+		
 		VertexShader = compile vs_3_0 Sky_VS();
 		PixelShader = compile ps_3_0 Sky_PS();
 	}

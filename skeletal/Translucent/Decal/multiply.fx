@@ -28,7 +28,7 @@ MIPARAM_SURFACEFLAGS;
 MIPARAM_TEXTURE(tDiffuseMap, 0, 0, "", true, "Diffuse map of the material. This represents the color of the light reflected");
 
 //the samplers for those textures
-SAMPLER_CLAMP_sRGB(sDiffuseMapSampler, tDiffuseMap);
+SAMPLER_CLAMP(sDiffuseMapSampler, tDiffuseMap);
 
 //--------------------------------------------------------------------
 // Utility functions
@@ -41,7 +41,7 @@ float3 GetPosition(MaterialVertex Vert)
 // Fetch the material diffuse color at a texture coordinate
 float4 GetMaterialDiffuse(float4 vCoord)
 {
-	return LinearizeAlpha( tex2Dproj(sDiffuseMapSampler, vCoord) );
+	return tex2Dproj(sDiffuseMapSampler, vCoord);
 }
 
 //////////////////////////////////////////////////////////////////////////////
@@ -52,8 +52,8 @@ float4 GetMaterialDiffuse(float4 vCoord)
 // Translucent Pass 1: Diffuse with the global translucent color
 struct PSData_Translucent 
 {
-	float4 Position			: POSITION;
-	float4 DiffuseTexCoord	: TEXCOORD0_centroid;
+	float4 Position : POSITION;
+	float4 DiffuseTexCoord : TEXCOORD0;
 };
 
 PSData_Translucent Translucent_VS(MaterialVertex IN)
@@ -75,6 +75,16 @@ PSOutput Translucent_PS(PSData_Translucent IN)
 	float3 vBlended = (vDiffuse.rgb * vDiffuse.a + float3(1.0, 1.0, 1.0) * (1.0 - vDiffuse.a));
 
 	OUT.Color = float4(vBlended, 1.0);
+
+	/*
+	OUT.Color = float4(1.0, 1.0, IN.DiffuseTexCoord.x + IN.DiffuseTexCoord.y, 1.0);
+	OUT.Color *= float4(IN.DiffuseTexCoord.x > 0 ? 1 : 0, IN.DiffuseTexCoord.y > 0 ? 1 : 0, 1.0, 1.0);
+	OUT.Color *= float4(IN.DiffuseTexCoord.x < 1 ? 1 : 0, IN.DiffuseTexCoord.y < 1 ? 1 : 0, 1.0, 1.0);
+	//*/
+	/*
+	float circle = length(IN.DiffuseTexCoord.xy * 2.0 - 1.0);
+	OUT.Color = float4(IN.DiffuseTexCoord.x * 2 - 1, IN.DiffuseTexCoord.y * 2 - 1, sin(circle * 3.14159265), circle < 1.0 ? 1.0 : 0.0);
+	//*/
 	return OUT;
 }
 
@@ -85,9 +95,16 @@ technique Translucent
 	pass p0 
 	{
 		CullMode = None;
+		//*
 		SrcBlend	= Zero;
 		DestBlend	= SrcColor;
-		GAMMA_CORRECT_WRITE;
+		//*/
+	
+		/*	
+		SrcBlend = SrcAlpha;
+		DestBlend = InvSrcAlpha;
+		//*/
+		sRGBWriteEnable = TRUE;
 		
 		VertexShader = compile vs_3_0 Translucent_VS();
 		PixelShader = compile ps_3_0 Translucent_PS();
