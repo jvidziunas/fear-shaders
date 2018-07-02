@@ -1,0 +1,146 @@
+#include "..\sdk\basedefs.fxh"
+#include "..\sdk\dx9lights.fxh"
+#include "..\sdk\transforms.fxh"
+
+//--------------------------------------------------------------------
+// Input/output formats
+
+// Represents a single input vertex that will be fed into each vertex shader
+struct MaterialVertex
+{
+    float3	Position	: POSITION;
+    float3	Normal		: NORMAL; 
+    float2	TexCoord	: TEXCOORD0;
+	float3	Tangent		: TANGENT;
+	float3	Binormal	: BINORMAL;
+};
+DECLARE_VERTEX_FORMAT(MaterialVertex);
+DECLARE_DESCRIPTION("This is the fill rate testing shader for PS_2_0.");
+DECLARE_DOCUMENATION("Shaders\\Docs\\specular\\main.htm");
+
+//--------------------------------------------------------------------
+// Material parameters
+
+MIPARAM_SURFACEFLAGS;
+// The specular power range of the material
+MIPARAM_FLOAT(fMaxSpecularPower, 64, "Maximum specular power. This scales the gloss map so that bright white is the specified power");
+// the textures exported for the user
+MIPARAM_TEXTURE(tDiffuseMap, 0, 0, "", true, "Diffuse map of the material. This represents the color of the light reflected");
+MIPARAM_TEXTURE(tSpecularMap, 0, 2, "", false, "Specular map of the material. This represents the color of light bounced off the surface");
+MIPARAM_TEXTURE(tNormalMap, 0, 3, "", false, "Normal map of the material. This represents the normal of each point on the surface");
+
+//the samplers for those textures
+SAMPLER_WRAP(sDiffuseMapSampler, tDiffuseMap);
+SAMPLER_WRAP(sSpecularMapSampler, tSpecularMap);
+// Note : Normal maps should have at least trilinear filtering
+sampler sNormalMapSampler = sampler_state
+{
+	texture = <tNormalMap>;
+	AddressU = Wrap;
+	AddressV = Wrap;
+	MipFilter = Linear;
+};
+
+//--------------------------------------------------------------------
+// Utility functions
+
+float3x3 GetInverseTangentSpace(MaterialVertex Vert)
+{
+	return GetInverseTangentSpace(Vert.Tangent, 
+								  Vert.Binormal, 
+								  Vert.Normal);
+}
+
+float3 GetPosition(MaterialVertex Vert)
+{
+	return Vert.Position;
+}
+
+// Fetch the surface normal at a texture coordinate
+float3 GetSurfaceNormal(float2 vCoord)
+{
+	return ColorToUnitVector(tex2D(sNormalMapSampler, vCoord).xyz);
+}
+
+float3 GetSurfaceNormal_Unit(float2 vCoord)
+{
+	return normalize(tex2D(sNormalMapSampler, vCoord).xyz - 0.5);
+}
+
+// Fetch the material diffuse color at a texture coordinate
+float4 GetMaterialDiffuse(float2 vCoord)
+{
+	return tex2D(sDiffuseMapSampler, vCoord);
+}
+
+// Fetch the material specular color at a texture coordinate
+float4 GetMaterialSpecular(float2 vCoord)
+{
+	return tex2D(sSpecularMapSampler, vCoord);
+}
+
+// Vertex attribute calculator for the test data we're going to be using
+void GetTestVertexAttributes(
+		in float3 vObjectPosition,
+		in float3x3 mObjToTangent,
+		in float2 vVertTexCoord,
+		out float4 vClipPosition,
+		out float2 vTexCoord,
+		out float3 vLightVector,
+		out float3 vEyeVector
+		)
+{
+	// Transform the position
+	vClipPosition = TransformToClipSpace(vObjectPosition);
+	// Pass through the texture coordinates
+	vTexCoord = vVertTexCoord;
+	
+	float3 vTestPosition = vClipPosition.xyz;
+
+	// Calculate the light vector
+	float3 vLightOffset = (float3(1,1,-1) - vTestPosition);
+	float3 vTangentLight = mul(mObjToTangent, vLightOffset);
+	vLightVector = vTangentLight * fInvLightRadius;
+
+	// Calculate the eye vector
+	float3 vEyeOffset = (float3(0,0,0) - vTestPosition);
+	vEyeVector = mul(mObjToTangent, vEyeOffset);
+}
+
+//////////////////////////////////////////////////////////////////////////////
+// Point light
+//////////////////////////////////////////////////////////////////////////////
+
+struct PSData_Point 
+{
+	float4 Position			: POSITION;
+	float2 TexCoord			: TEXCOORD0;
+	float3 LightVector		: TEXCOORD1;
+	float3 EyeVector		: TEXCOORD2;
+};
+
+PSData_Point Point_VS(MaterialVertex IN)
+{
+	PSData_Point OUT;
+
+	GetTestVertexAttributes(GetPosition(IN), GetInverseTangentSpace(IN), IN.TexCoord, OUT.Position, OUT.TexCoord, OUT.LightVector, OUT.EyeVector);
+
+	return OUT;
+}
+
+float4 Point_PS(PSData_Point IN) : COLOR
+{
+	return GetLitPixelColor(IN.LightVector, IN.EyeVector, 
+		GetSurfaceNormal_Unit(IN.TexCoord), GetMaterialDiffuse(IN.TexCoord), GetMaterialSpecular(IN.TexCoord), 
+		GetLightDiffuseColor().xyz, GetLightSpecularColor(), fMaxSpecularPower);
+}
+
+technique Translucent
+{
+	pass Draw
+	{		
+		VertexShader = compile vs_1_1 Point_VS();
+		PixelShader = compile ps_2_0 Point_PS();
+	}
+}
+

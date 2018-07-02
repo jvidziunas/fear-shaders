@@ -1,0 +1,175 @@
+#define SKELETAL_MATERIAL
+#include "..\sdk\basedefs.fxh"
+#include "..\sdk\transforms.fxh"
+#include "..\sdk\lightdefs.fxh"
+#include "..\sdk\skeletal.fxh"
+
+// Data from the application
+// Note : Shadow volume vertices for models have vertex positions for the entire triangle in each vertex...
+struct MaterialVertex
+{
+    float3	Position0 : POSITION0;
+    float3	Position1 : POSITION1;
+    float3	Position2 : POSITION2;
+	float4  Weights0 : BLENDWEIGHT0;
+	float4  Weights1 : BLENDWEIGHT1;
+	float4  Weights2 : BLENDWEIGHT2;
+	SKELETAL_INDEX_TYPE	Indices0 : BLENDINDICES0;
+	SKELETAL_INDEX_TYPE	Indices1 : BLENDINDICES1;
+	SKELETAL_INDEX_TYPE	Indices2 : BLENDINDICES2;
+};
+DECLARE_VERTEX_FORMAT(MaterialVertex);
+
+//////////////////////////////////////////////////////////////////////////////
+// Shadow volume rendering
+
+struct PSData_ShadowVolume
+{
+	float4 Position		: POSITION;
+};
+
+
+PSData_ShadowVolume ShadowVolume_VS(MaterialVertex IN)
+{
+	PSData_ShadowVolume OUT;
+
+	float3 vPos0 = SkinPoint(IN.Position0, IN.Weights0, SKELETAL_INDEX_CONVERT(IN.Indices0));
+	float3 vPos1 = SkinPoint(IN.Position1, IN.Weights1, SKELETAL_INDEX_CONVERT(IN.Indices1));
+	float3 vPos2 = SkinPoint(IN.Position2, IN.Weights2, SKELETAL_INDEX_CONVERT(IN.Indices2));
+
+	float3 vCentroid = (vPos0 + vPos1 + vPos2) / 3;
+
+	float3 vNormal = cross(vPos1 - vPos0, vPos2 - vPos0);
+
+	float3 vLightPosOffset = vObjectSpaceLightPos - vPos0;
+	float3 vLightCentroidOffset = vObjectSpaceLightPos - vCentroid;
+	float4 vFinalPosition;
+	if (dot(vLightCentroidOffset, vNormal) < 0)
+	{
+		// Note : This assumes that a shadow volume will create a chord on the sphere with an angle no greater than 60 degrees
+		//*
+		float fLightRadius = 1.154700538 / fInvLightRadius;
+		float fDistanceFromLight = length(vLightPosOffset);
+		vFinalPosition = float4(vPos0 - (vLightPosOffset / fDistanceFromLight) * max(fLightRadius - fDistanceFromLight, 1.0), 1);
+		//*/
+		// This method is faster vertex-processing-wise, and doesn't rely on projection distance, but will cause more overdraw...
+		//vFinalPosition = float4(-vLightPosOffset, 0);
+	}
+	else
+	{
+		vFinalPosition = float4(vPos0, 1);
+	}
+
+	//float3 vFinalPosition = SkinPoint(IN.Position0, IN.Weights0);
+
+	OUT.Position = TransformToClipSpace(vFinalPosition);
+
+	// Biasing value helps prevent popping, but causes some features to not cast shadows
+	OUT.Position.z += 0.01f;
+
+	return OUT;
+}
+
+technique ShadowVolumeDebug
+{
+	// Volume visualization
+	pass Solid
+	{
+		FillMode = Solid;
+		ZFunc = Less;
+		StencilEnable = False;
+		ColorWriteEnable = Red|Green|Blue|Alpha;
+		CullMode = None;
+		VertexShader = compile vs_1_1 ShadowVolume_VS();
+		TextureFactor = 0x28282828;
+		ColorArg1[0] = TFactor;
+		ColorOp[0] = SelectArg1;
+		AlphaArg1[0] = TFactor;
+		AlphaOp[0] = SelectArg1;
+		ColorOp[1] = Disable;
+		AlphaOp[1] = Disable;
+	}
+	// Volume visualization
+	pass Wireframe
+	{
+		FillMode = Wireframe;
+		ZFunc = Less;
+		StencilEnable = False;
+		ColorWriteEnable = Red|Green|Blue|Alpha;
+		CullMode = None;
+		VertexShader = compile vs_1_1 ShadowVolume_VS();
+		TextureFactor = 0x20202020;
+		ColorArg1[0] = TFactor;
+		ColorOp[0] = SelectArg1;
+		AlphaArg1[0] = TFactor;
+		AlphaOp[0] = SelectArg1;
+		ColorOp[1] = Disable;
+		AlphaOp[1] = Disable;
+	}
+}
+
+PSData_ShadowVolume DirectionalShadowVolume_VS(MaterialVertex IN)
+{
+	PSData_ShadowVolume OUT;
+
+	float3 vPos0 = SkinPoint(IN.Position0, IN.Weights0, SKELETAL_INDEX_CONVERT(IN.Indices0));
+	float3 vPos1 = SkinPoint(IN.Position1, IN.Weights1, SKELETAL_INDEX_CONVERT(IN.Indices1));
+	float3 vPos2 = SkinPoint(IN.Position2, IN.Weights2, SKELETAL_INDEX_CONVERT(IN.Indices2));
+
+	float3 vNormal = cross(vPos1 - vPos0, vPos2 - vPos0);
+
+	float4 vFinalPosition;
+	if (dot(vDirectional_Dir, vNormal) > 0)
+	{
+		//project it onto the far plane of the directional volume
+		float fProjectDist = fDirectional_FarPlane - dot(vDirectional_Dir, vPos0);
+		vFinalPosition = float4(vPos0 + vDirectional_Dir * fProjectDist, 1);
+	}
+	else
+	{
+		vFinalPosition = float4(vPos0, 1);
+	}
+
+	OUT.Position = TransformToClipSpace(vFinalPosition);
+	OUT.Position.z += 0.01f;
+
+	return OUT;
+}
+
+technique DirectionalShadowVolumeDebug
+{
+	// Volume visualization
+	pass Solid
+	{
+		FillMode = Solid;
+		ZFunc = Less;
+		StencilEnable = False;
+		ColorWriteEnable = Red|Green|Blue|Alpha;
+		CullMode = None;
+		VertexShader = compile vs_1_1 DirectionalShadowVolume_VS();
+		TextureFactor = 0x28282828;
+		ColorArg1[0] = TFactor;
+		ColorOp[0] = SelectArg1;
+		AlphaArg1[0] = TFactor;
+		AlphaOp[0] = SelectArg1;
+		ColorOp[1] = Disable;
+		AlphaOp[1] = Disable;
+	}
+	// Volume visualization
+	pass Wireframe
+	{
+		FillMode = Wireframe;
+		ZFunc = Less;
+		StencilEnable = False;
+		ColorWriteEnable = Red|Green|Blue|Alpha;
+		CullMode = None;
+		VertexShader = compile vs_1_1 DirectionalShadowVolume_VS();
+		TextureFactor = 0x20202020;
+		ColorArg1[0] = TFactor;
+		ColorOp[0] = SelectArg1;
+		AlphaArg1[0] = TFactor;
+		AlphaOp[0] = SelectArg1;
+		ColorOp[1] = Disable;
+		AlphaOp[1] = Disable;
+	}
+}

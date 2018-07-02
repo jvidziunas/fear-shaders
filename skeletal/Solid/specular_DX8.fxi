@@ -1,0 +1,2 @@
+#define SKELETAL_MATERIAL
+#include "..\..\Rigid\Solid\specular_DX8.fxi"

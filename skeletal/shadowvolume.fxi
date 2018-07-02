@@ -1,0 +1,48 @@
+#include "shadowvolume_base.fxi"
+
+technique ShadowVolume <
+	string Fallback = "shadowvolume_safe.fxi";
+>
+{
+	pass StencilBoth
+	{
+		ZFunc = Less;
+		ColorWriteEnable = 0;
+		CullMode = None;
+		TwoSidedStencilMode = True;
+		StencilFunc = Always;
+		StencilFail = Keep;
+		StencilZFail = Incr;
+		StencilPass = Keep;
+		CCW_StencilFail = Keep;
+		CCW_StencilZFail = Decr;
+		CCW_StencilPass = Keep;
+		VertexShader = compile vs_1_1 ShadowVolume_VS();
+		ColorOp[0] = Disable;
+		AlphaOp[0] = Disable;
+	}
+}
+
+technique DirectionalShadowVolume <
+	string Fallback = "shadowvolume_safe.fxi";
+>
+{
+	pass StencilBoth
+	{
+		ZFunc = Less;
+		ColorWriteEnable = 0;
+		CullMode = None;
+		TwoSidedStencilMode = True;
+		StencilFunc = Always;
+		StencilFail = Keep;
+		StencilZFail = Incr;
+		StencilPass = Keep;
+		CCW_StencilFail = Keep;
+		CCW_StencilZFail = Decr;
+		CCW_StencilPass = Keep;
+		VertexShader = compile vs_1_1 DirectionalShadowVolume_VS();
+		ColorOp[0] = Disable;
+		AlphaOp[0] = Disable;
+	}
+}
+

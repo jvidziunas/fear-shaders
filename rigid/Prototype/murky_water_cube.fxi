@@ -1,0 +1,224 @@
+#include "..\..\sdk\basedefs.fxh"
+#include "..\..\sdk\skeletal.fxh"
+#include "..\..\sdk\screencoords.fxh"
+#include "..\..\sdk\depthencode.fxh"
+#include "..\..\sdk\transforms.fxh"
+#include "..\..\sdk\time.fxh"
+
+//--------------------------------------------------------------------
+// Input/output formats
+
+// Represents a single input vertex that will be fed into each vertex shader
+struct MaterialVertex
+{
+    float3	Position	: POSITION;
+    float3	Normal		: NORMAL; 
+    float2	TexCoord	: TEXCOORD0;
+	float3	Tangent		: TANGENT;
+	float3	Binormal	: BINORMAL;
+
+	DECLARE_SKELETAL_WEIGHTS
+};
+DECLARE_VERTEX_FORMAT(MaterialVertex);
+DECLARE_DESCRIPTION("Water shader, for use on _SOLID_ polygrids.  Note: This shader does not play well with other refractive and volumetric fog shaders.");
+DECLARE_DOCUMENATION("Shaders\\Docs\\refract_water\\main.htm");
+DECLARE_PARENT_MATERIAL(0, "murky_water_dx8.fxi");
+
+//--------------------------------------------------------------------
+// Material parameters
+
+MIPARAM_SURFACEFLAGS;
+// Maximum depth of the fog
+MIPARAM_FLOAT(fFogDepth, 50, "Fog depth");
+MIPARAM_FLOAT(fFogBias, 0.6, "Fog bias");
+// Offset scaling amount for reflections
+MIPARAM_FLOAT(fReflectScale, 0.2, "Reflection scale");
+
+// the textures exported for the user
+MIPARAM_TEXTURE(tDiffuseMap, 0, 0, "", true, "Diffuse map of the material. This represents the color of the light refracted");
+MIPARAM_TEXTURE(tNormalMap, 0, 1, "", false, "Normal map of the material. This represents the normal of each point on the surface");
+MIPARAM_TEXTURE(tReflectionMap_Low, 0, 2, "", false, "Reflection map of the material. This is a cube map representing the reflected environment.");
+MIPARAM_TEXTURE(tFresnelTable, 0, 5, "", false, "Fresnel look-up table. This is used to determine the amount of reflection to apply based on the viewing angle.");
+MIPARAM_TEXTURE(tWaveMap, 0, 4, "", false, "Wave map");
+MIPARAM_FLOAT(fDiffuseWaveScale, 10.0, "Diffuse wave scale");
+MIPARAM_VECTOR(vReflectionPlane, 0,1,0, "Reflection plane in object space");
+MIPARAM_VECTOR(vFogColor, 0.095, 0.07, 0.01, "Fog color");
+MIPARAM_FLOAT(fNoise1Frequency, 1.0, "Noise octave #1 Frequency.");
+MIPARAM_FLOAT(fNoise1Amplitude, 1.4, "Noise octave #1 Amplitude.");
+MIPARAM_FLOAT(fNoise1Speed, 0.3, "Noise octave #1 Speed.");
+MIPARAM_FLOAT(fNoise2Frequency, 1.0, "Noise octave #2 Frequency.");
+MIPARAM_FLOAT(fNoise2Amplitude, 1.0, "Noise octave #2 Amplitude.");
+MIPARAM_FLOAT(fNoise2Speed, 0.3, "Noise octave #2 Speed.");
+MIPARAM_FLOAT(fNoise2Rotation, 0, "Noise octave #2 Rotation.");
+
+//the samplers for those textures
+SAMPLER_WRAP_sRGB(sDiffuseMapSampler, tDiffuseMap);
+// Note : Normal maps should have at least trilinear filtering
+sampler sNormalMapSampler = sampler_state
+{
+	texture = <tNormalMap>;
+	AddressU = Wrap;
+	AddressV = Wrap;
+	MipFilter = Linear;
+};
+SAMPLER_WRAP(sWaveMapSampler, tWaveMap);
+SAMPLER_CLAMP_sRGB(sReflectionMapSampler, tReflectionMap_Low);
+SAMPLER_CLAMP(sFresnelTableSampler, tFresnelTable);
+
+//--------------------------------------------------------------------
+// Utility functions
+
+float3x3 GetInverseTangentSpace(MaterialVertex Vert)
+{
+	return GetInverseTangentSpace(	SKIN_VECTOR(Vert.Tangent, Vert), 
+									SKIN_VECTOR(Vert.Binormal, Vert), 
+									SKIN_VECTOR(Vert.Normal, Vert));
+}
+
+float3 GetPosition(MaterialVertex Vert)
+{
+	return SKIN_POINT(Vert.Position, Vert);
+}
+
+float3 GetNormal(MaterialVertex Vert)
+{
+	return SKIN_VECTOR(Vert.Normal, Vert);
+}
+
+// Fetch the surface normal at a texture coordinate
+float3 GetSurfaceNormal(float2 vCoord)
+{
+	float3 vTexture = tex2D(sNormalMapSampler, vCoord).xyz;
+	return ColorToUnitVector(vTexture);
+}
+
+// Fetch the material diffuse color at a texture coordinate
+float4 GetMaterialDiffuse(float2 vCoord)
+{
+	return LinearizeAlpha( tex2D(sDiffuseMapSampler, vCoord) );
+}
+
+float Sqr(float n)
+{
+	return n * n;
+}
+
+float2 GetSurfaceNormal_Offset(float2 vCoord, float fOffsetCoordScale, float fOffsetScale, float fTimeScale)
+{
+	float2 vOffset = tex2D(sWaveMapSampler, vCoord * fOffsetCoordScale + float2(0, fTime * fTimeScale)).xy - 0.5;
+	vOffset += tex2D(sWaveMapSampler, vCoord * fOffsetCoordScale + float2(fTime * fTimeScale + 0.314159265, 0)).xy - 0.5;
+	return vOffset * fOffsetScale;
+}
+
+float GetSoftIntersectionFactor()
+{
+	return 1.0f;
+}
+
+//////////////////////////////////////////////////////////////////////////////
+// Translucent
+//////////////////////////////////////////////////////////////////////////////
+
+struct PSData_Translucent 
+{
+	float4 Position			: POSITION;
+	float2 TexCoord			: TEXCOORD0_centroid;
+	float4 ScreenCoord		: TEXCOORD1_centroid;
+	float3 EyeVector		: TEXCOORD2_centroid;
+	float3x3 TangentToObj	: TEXCOORD3_centroid;
+	float2 TexCoord2		: TEXCOORD4_centroid;
+	float4 FrontPos			: TEXCOORD5;
+};
+
+PSData_Translucent Translucent_VS(MaterialVertex IN)
+{
+	PSData_Translucent OUT;
+	OUT.Position = OUT.FrontPos = TransformToClipSpace(GetPosition(IN));
+	OUT.TexCoord = IN.TexCoord;
+	OUT.ScreenCoord = GetScreenTexCoords(OUT.Position);
+	OUT.ScreenCoord.z = OUT.ScreenCoord.z / fFogDepth;
+
+	float3x3 mTangent = transpose(GetInverseTangentSpace(IN));
+	OUT.TangentToObj = mTangent;
+	OUT.TangentToObj[0] = mul(mObjectToWorld, OUT.TangentToObj[0]);
+	OUT.TangentToObj[1] = mul(mObjectToWorld, OUT.TangentToObj[1]);
+	OUT.TangentToObj[2] = mul(mObjectToWorld, OUT.TangentToObj[2]);
+	
+	OUT.EyeVector = GetPosition(IN) - vObjectSpaceEyePos;
+	OUT.EyeVector = mul(mObjectToWorld, OUT.EyeVector);
+
+	float theta = radians(fNoise2Rotation);
+	OUT.TexCoord2 = float2(	dot(IN.TexCoord, float2(cos(theta), sin(theta))), 
+							dot(IN.TexCoord, float2(-sin(theta), cos(theta))));
+
+	return OUT;
+}
+
+float4 Translucent_PS(PSData_Translucent IN) : COLOR
+{
+	float4 vResult = float4(0,0,0,1);
+	
+	// Sample the front map
+	float fFront = IN.FrontPos.z/IN.FrontPos.w;
+	// Sample the back map
+	float fBack = DecodeDepth(tex2Dproj(sDepthMapSampler, IN.ScreenCoord));
+	// Get the difference
+	float fDepth = (fBack / fFogDepth) - fFront;
+	fDepth = sqrt(fDepth);
+	
+	float fSoftIntersectionDepth = max( (fBack - fFront), 0.0f );
+	float fSoftIntersectionFactor = saturate( GetSoftIntersectionFactor() * fSoftIntersectionDepth );
+
+	vResult = float4(vFogColor, saturate(fDepth + fFogBias));
+	
+	float2 vNormalOffset = GetSurfaceNormal_Offset(IN.TexCoord, 0.2 * fNoise1Frequency, fNoise1Amplitude, fNoise1Speed);
+	float4 vDiffuse = GetMaterialDiffuse(IN.TexCoord + vNormalOffset * fDiffuseWaveScale);
+	vNormalOffset += GetSurfaceNormal_Offset(IN.TexCoord2, -0.31415 * fNoise2Frequency, fNoise2Amplitude, fNoise2Speed);
+	
+	float3 vOffsetNormal = GetSurfaceNormal(IN.TexCoord + vNormalOffset);
+	float3 vOffset = normalize(mul(IN.TangentToObj, vOffsetNormal * float3(fReflectScale, fReflectScale, 2.0f)));
+	
+	float3 vEyeVector = IN.EyeVector;
+	float3 vReflectionCoord = vEyeVector - 2 * vOffset * dot(vOffset, vEyeVector);
+	
+	// Sample the reflection map
+	float3 vReflection = texCUBE(sReflectionMapSampler, vReflectionCoord);
+	vReflection *= vDiffuse.xyz;
+
+	// Do a lookup in the fresnel table to calculate the reflection opacity
+	IN.EyeVector = normalize(IN.EyeVector / IN.EyeVector.z);
+	float fFresnelReflection = tex1D(sFresnelTableSampler, dot(IN.EyeVector, vOffsetNormal)) * 0.5;
+	vResult.xyz = lerp(vResult.xyz, vReflection, max(fFresnelReflection, saturate(1 - vResult.w)));
+	vResult.w = max(vResult.w, fFresnelReflection) * fSoftIntersectionFactor;
+	
+	// Note : This is how the fresnel equation should get evaluated without the table..
+	/*
+	float fIORRatioSqr = Sqr(1.0 / fIndexOfRefraction);
+	float fCos = -dot(normalize(IN.EyeVector), vTransformedNormal);
+	float fG = fIORRatioSqr + Sqr(fCos) - 1.0f;
+	vResult.w = (Sqr(fG - fCos) / (2.0f * Sqr(fG + fCos))) * (1.0f + Sqr(fCos * (fG + fCos) - 1.0f) / Sqr(fCos * (fG - fCos) + 1.0f));
+	//*/
+		
+	return vResult;
+	
+}
+
+technique FogVolume_Blend
+{
+	pass Draw
+	{
+		FogEnable = true;
+		CullMode = None;
+		AlphaBlendEnable = True;
+		ZEnable = True;
+		ZFunc = LessEqual;
+		ZWriteEnable = True;
+		SrcBlend = SrcAlpha;
+		DestBlend = InvSrcAlpha;
+		GAMMA_CORRECT_WRITE;
+
+		VertexShader = compile vs_3_0 Translucent_VS();
+		PixelShader = compile ps_3_0 Translucent_PS();
+	}
+}
+

@@ -1,0 +1,147 @@
+#include "..\sdk\basedefs.fxh"
+#include "..\sdk\transforms.fxh"
+#include "..\sdk\lightdefs.fxh"
+
+// Data from the application
+struct MaterialVertex
+{
+    float3	Position : POSITION;
+    float3	Normal : NORMAL; 
+};
+DECLARE_VERTEX_FORMAT(MaterialVertex);
+
+//////////////////////////////////////////////////////////////////////////////
+// Shadow volume rendering
+
+struct PSData_ShadowVolume
+{
+	float4 Position		: POSITION;
+};
+
+PSData_ShadowVolume ShadowVolume_VS(MaterialVertex IN)
+{
+	PSData_ShadowVolume OUT;
+
+	float3 vLightOffset = vObjectSpaceLightPos - IN.Position;
+	float4 vFinalPosition;
+	if (dot(vLightOffset, IN.Normal) < 0)
+	{
+		// Note : This assumes that a shadow volume will create a chord on the sphere with an angle no greater than 120 degrees
+		//*
+		float fLightRadius = 2.0 / fInvLightRadius;
+		float fDistanceFromLight = length(vLightOffset);
+		vFinalPosition = float4(IN.Position - (vLightOffset / fDistanceFromLight) * max(fLightRadius - fDistanceFromLight, 1.0), 1);
+		//*/
+		// This method is faster vertex-processing-wise, and doesn't rely on projection distance, but will cause more overdraw...
+		//vFinalPosition = float4(IN.Position - vObjectSpaceLightPos, 0);
+	}
+	else
+	{
+		vFinalPosition = float4(IN.Position, 1);
+	}
+		
+	OUT.Position = TransformToClipSpace(vFinalPosition);
+
+	//OUT.Position.z += 0.01;
+
+	return OUT;
+}
+
+technique ShadowVolumeDebug
+{
+	// Volume visualization
+	pass Solid
+	{
+		FillMode = Solid;
+		ZFunc = Less;
+		StencilEnable = False;
+		ColorWriteEnable = Red|Green|Blue|Alpha;
+		CullMode = None;
+		VertexShader = compile vs_1_1 ShadowVolume_VS();
+		TextureFactor = 0x28282828;
+		ColorArg1[0] = TFactor;
+		ColorOp[0] = SelectArg1;
+		AlphaArg1[0] = TFactor;
+		AlphaOp[0] = SelectArg1;
+		ColorOp[1] = Disable;
+		AlphaOp[1] = Disable;
+	}
+	// Volume visualization
+	pass Wireframe
+	{
+		FillMode = Wireframe;
+		ZFunc = Less;
+		StencilEnable = False;
+		ColorWriteEnable = Red|Green|Blue|Alpha;
+		CullMode = None;
+		VertexShader = compile vs_1_1 ShadowVolume_VS();
+		TextureFactor = 0x20202020;
+		ColorArg1[0] = TFactor;
+		ColorOp[0] = SelectArg1;
+		AlphaArg1[0] = TFactor;
+		AlphaOp[0] = SelectArg1;
+		ColorOp[1] = Disable;
+		AlphaOp[1] = Disable;
+	}
+}
+
+PSData_ShadowVolume DirectionalShadowVolume_VS(MaterialVertex IN)
+{
+	PSData_ShadowVolume OUT;
+
+	float4 vFinalPosition;
+	if (dot(vDirectional_Dir, IN.Normal) > 0)
+	{
+		//project it onto the far plane of the directional volume
+		float fProjectDist = fDirectional_FarPlane - dot(vDirectional_Dir, IN.Position);
+		vFinalPosition = float4(IN.Position + vDirectional_Dir * fProjectDist, 1);
+	}
+	else
+	{
+		vFinalPosition = float4(IN.Position, 1);
+	}
+		
+	OUT.Position = TransformToClipSpace(vFinalPosition);
+
+	OUT.Position.z += 0.01;
+
+	return OUT;
+}
+
+technique DirectionalShadowVolumeDebug
+{
+	// Volume visualization
+	pass Solid
+	{
+		FillMode = Solid;
+		ZFunc = Less;
+		StencilEnable = False;
+		ColorWriteEnable = Red|Green|Blue|Alpha;
+		CullMode = None;
+		VertexShader = compile vs_1_1 DirectionalShadowVolume_VS();
+		TextureFactor = 0x28282828;
+		ColorArg1[0] = TFactor;
+		ColorOp[0] = SelectArg1;
+		AlphaArg1[0] = TFactor;
+		AlphaOp[0] = SelectArg1;
+		ColorOp[1] = Disable;
+		AlphaOp[1] = Disable;
+	}
+	// Volume visualization
+	pass Wireframe
+	{
+		FillMode = Wireframe;
+		ZFunc = Less;
+		StencilEnable = False;
+		ColorWriteEnable = Red|Green|Blue|Alpha;
+		CullMode = None;
+		VertexShader = compile vs_1_1 DirectionalShadowVolume_VS();
+		TextureFactor = 0x20202020;
+		ColorArg1[0] = TFactor;
+		ColorOp[0] = SelectArg1;
+		AlphaArg1[0] = TFactor;
+		AlphaOp[0] = SelectArg1;
+		ColorOp[1] = Disable;
+		AlphaOp[1] = Disable;
+	}
+}

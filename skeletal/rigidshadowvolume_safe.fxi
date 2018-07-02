@@ -1,0 +1,68 @@
+#include "rigidshadowvolume_base.fxi"
+
+technique ShadowVolume
+{
+	pass StencilFront
+	{
+		ZFunc = Less;
+		ColorWriteEnable = 0;
+		CullMode = CCW;
+		TwoSidedStencilMode = False;
+		StencilFunc = Always;
+		StencilFail = Keep;
+		StencilZFail = Incr;
+		StencilPass = Keep;
+		VertexShader = compile vs_1_1 ShadowVolume_VS();
+		ColorOp[0] = Disable;
+		AlphaOp[0] = Disable;
+	}
+	pass StencilBack
+	{
+		ZFunc = Less;
+		ColorWriteEnable = 0;
+		CullMode = CW;
+		TwoSidedStencilMode = False;
+		StencilFunc = Always;
+		StencilFail = Keep;
+		StencilZFail = Decr;
+		StencilPass = Keep;
+		VertexShader = compile vs_1_1 ShadowVolume_VS();
+		ColorOp[0] = Disable;
+		AlphaOp[0] = Disable;
+	}
+}
+
+technique DirectionalShadowVolume
+{
+	pass StencilFront
+	{
+		ZFunc = Less;
+		ColorWriteEnable = 0;
+		CullMode = CCW;
+		TwoSidedStencilMode = False;
+		StencilFunc = Always;
+		StencilFail = Keep;
+		StencilZFail = Incr;
+		StencilPass = Keep;
+		VertexShader = compile vs_1_1 DirectionalShadowVolume_VS();
+		ColorOp[0] = Disable;
+		AlphaOp[0] = Disable;
+		DepthBias = 0.00001;
+	}
+	pass StencilBack
+	{
+		ZFunc = Less;
+		ColorWriteEnable = 0;
+		CullMode = CW;
+		TwoSidedStencilMode = False;
+		StencilFunc = Always;
+		StencilFail = Keep;
+		StencilZFail = Decr;
+		StencilPass = Keep;
+		VertexShader = compile vs_1_1 DirectionalShadowVolume_VS();
+		ColorOp[0] = Disable;
+		AlphaOp[0] = Disable;
+		DepthBias = 0.00001;
+	}
+}
+
